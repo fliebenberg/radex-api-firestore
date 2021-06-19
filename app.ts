@@ -16,8 +16,6 @@ const app = express();
 
 const port = process.env.PORT || 3000;
 
-const test = 8;
-
 
 app.get("/tokens", async (req, res, next) => {
     const result = (await db.collection("/tokens").get()).docs.map(doc => {
