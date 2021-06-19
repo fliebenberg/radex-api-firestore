@@ -17,6 +17,10 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 
+app.get("/", async (req, res) => {
+    res.send("radex-api-firestore is working.");
+})
+
 app.get("/tokens", async (req, res, next) => {
     const result = (await db.collection("/tokens").get()).docs.map(doc => {
         return doc.data();

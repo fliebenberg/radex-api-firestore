@@ -70,7 +70,12 @@ var db = firebase_admin_1.default.firestore();
 var express_1 = __importDefault(require("express"));
 var app = express_1.default();
 var port = process.env.PORT || 3000;
-var test = 8;
+app.get("/", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    return __generator(this, function (_a) {
+        res.send("radex-api-firestore is working.");
+        return [2 /*return*/];
+    });
+}); });
 app.get("/tokens", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
     var result;
     return __generator(this, function (_a) {
