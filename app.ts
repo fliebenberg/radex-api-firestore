@@ -1,13 +1,15 @@
 
 import * as Utils from "./utils";
+import cors from "cors";
+import fetch from "node-fetch";
 
 // initialise firestore
-import fs from "firebase-admin";
+import fb from "firebase-admin";
 const serviceAccount = require("./tokenx-1551e-9b4aaa761724.json");
-fs.initializeApp({
-    credential: fs.credential.cert(serviceAccount)
+fb.initializeApp({
+    credential: fb.credential.cert(serviceAccount)
 });
-const db = fs.firestore();
+const db = fb.firestore();
 
 // initialise express
 import express from "express";
@@ -16,6 +18,40 @@ const app = express();
 
 const port = process.env.PORT || 3000;
 
+app.use(cors());
+app.use(express.json());
+
+// post functions
+app.post("/order", async (req, res) => {
+    // console.log("Request Body:", req.body);
+    const bodyString = JSON.stringify(req.body);
+    // console.log("Request Header: ", req.headers);
+    // console.log("Received a Create order request with body "+ bodyString);
+    // const firestoreUrl = "https://us-central1-tokenx-1551e.cloudfunctions.net/addOrderToQHTTPFn";
+    const firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1/addOrderToQHTTPFn";
+    fetch(firestoreUrl, {
+            method: "POST",
+            headers: {
+                'Content-Type': 'application/json',
+              },
+            body: bodyString,
+    }).then (async response => {
+        const responseText = await response.text();
+        // console.log("Response (text):", responseText);
+
+        if (response.status == 200) {
+            res.status(200).send(responseText);
+        } else {
+            res.status(400).send(responseText);
+        }
+    }).catch (error => {
+        res.status(404).send("firebase error: " + error);
+    })
+    
+})
+
+
+// get functions
 
 app.get("/", async (req, res) => {
     res.send("radex-api-firestore is working.");

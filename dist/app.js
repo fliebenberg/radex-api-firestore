@@ -59,6 +59,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 var Utils = __importStar(require("./utils"));
+var cors_1 = __importDefault(require("cors"));
+var node_fetch_1 = __importDefault(require("node-fetch"));
 // initialise firestore
 var firebase_admin_1 = __importDefault(require("firebase-admin"));
 var serviceAccount = require("./tokenx-1551e-9b4aaa761724.json");
@@ -70,6 +72,44 @@ var db = firebase_admin_1.default.firestore();
 var express_1 = __importDefault(require("express"));
 var app = express_1.default();
 var port = process.env.PORT || 3000;
+app.use(cors_1.default());
+app.use(express_1.default.json());
+// post functions
+app.post("/order", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var bodyString, firestoreUrl;
+    return __generator(this, function (_a) {
+        bodyString = JSON.stringify(req.body);
+        firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1/addOrderToQHTTPFn";
+        node_fetch_1.default(firestoreUrl, {
+            method: "POST",
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: bodyString,
+        }).then(function (response) { return __awaiter(void 0, void 0, void 0, function () {
+            var responseText;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, response.text()];
+                    case 1:
+                        responseText = _a.sent();
+                        // console.log("Response (text):", responseText);
+                        if (response.status == 200) {
+                            res.status(200).send(responseText);
+                        }
+                        else {
+                            res.status(400).send(responseText);
+                        }
+                        return [2 /*return*/];
+                }
+            });
+        }); }).catch(function (error) {
+            res.status(404).send("firebase error: " + error);
+        });
+        return [2 /*return*/];
+    });
+}); });
+// get functions
 app.get("/", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         res.send("radex-api-firestore is working.");
