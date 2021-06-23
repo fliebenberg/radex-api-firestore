@@ -79,7 +79,8 @@ app.post("/order", function (req, res) { return __awaiter(void 0, void 0, void 0
     var bodyString, firestoreUrl;
     return __generator(this, function (_a) {
         bodyString = JSON.stringify(req.body);
-        firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1/addOrderToQHTTPFn";
+        firestoreUrl = "https://us-central1-tokenx-1551e.cloudfunctions.net/addOrderToQHTTPFn";
+        // const firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1/addOrderToQHTTPFn";
         node_fetch_1.default(firestoreUrl, {
             method: "POST",
             headers: {
@@ -93,12 +94,13 @@ app.post("/order", function (req, res) { return __awaiter(void 0, void 0, void 0
                     case 0: return [4 /*yield*/, response.text()];
                     case 1:
                         responseText = _a.sent();
-                        // console.log("Response (text):", responseText);
+                        console.log("Response (text):", responseText);
+                        console.log("Response (status):", response.status);
                         if (response.status == 200) {
                             res.status(200).send(responseText);
                         }
                         else {
-                            res.status(400).send(responseText);
+                            res.status(response.status).send(responseText);
                         }
                         return [2 /*return*/];
                 }

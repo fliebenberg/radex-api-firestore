@@ -27,8 +27,8 @@ app.post("/order", async (req, res) => {
     const bodyString = JSON.stringify(req.body);
     // console.log("Request Header: ", req.headers);
     // console.log("Received a Create order request with body "+ bodyString);
-    // const firestoreUrl = "https://us-central1-tokenx-1551e.cloudfunctions.net/addOrderToQHTTPFn";
-    const firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1/addOrderToQHTTPFn";
+    const firestoreUrl = "https://us-central1-tokenx-1551e.cloudfunctions.net/addOrderToQHTTPFn";
+    // const firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1/addOrderToQHTTPFn";
     fetch(firestoreUrl, {
             method: "POST",
             headers: {
@@ -38,11 +38,12 @@ app.post("/order", async (req, res) => {
     }).then (async response => {
         const responseText = await response.text();
         // console.log("Response (text):", responseText);
+        // console.log("Response (status):", response.status);
 
         if (response.status == 200) {
             res.status(200).send(responseText);
         } else {
-            res.status(400).send(responseText);
+            res.status(response.status).send(responseText);
         }
     }).catch (error => {
         res.status(404).send("firebase error: " + error);
