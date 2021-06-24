@@ -26,10 +26,10 @@ app.use(express.json());
 
 // post functions
 app.post("/order", async (req, res) => {
-    console.log("Request Body:", req.body);
+    // console.log("Request Body:", req.body);
     const bodyString = JSON.stringify(req.body);
-    console.log("Request Header: ", req.headers);
-    console.log("Received a Create order request with body "+ bodyString);
+    // console.log("Request Header: ", req.headers);
+    // console.log("Received a Create order request with body "+ bodyString);
     fetch(firestoreUrl+"/addOrderToQHTTPFn", {
             method: "POST",
             headers: {
@@ -57,8 +57,8 @@ app.post("/order", async (req, res) => {
 // cancel order
 app.delete("/order/:order_id", async (req, res) => {
     const orderId = req.params.order_id;
-    const orderPair = orderId.split("_")[0];
-    console.log("Deleting order: " + orderId +" on pair "+ orderPair);
+    // const orderPair = orderId.split("_")[0];
+    // console.log("Deleting order: " + orderId +" on pair "+ orderPair);
     fetch(firestoreUrl+"/cancelOrderHTTPFn", {
         method: "POST",
         headers: {
@@ -67,8 +67,8 @@ app.delete("/order/:order_id", async (req, res) => {
         body: orderId,
     }).then (async response => {
         const responseText = await response.text();
-        console.log("Response (text):", responseText);
-        console.log("Response (status):", response.status);
+        // console.log("Response (text):", responseText);
+        // console.log("Response (status):", response.status);
 
         if (response.status == 200) {
             res.status(200).send(responseText);
