@@ -72,21 +72,61 @@ var db = firebase_admin_1.default.firestore();
 var express_1 = __importDefault(require("express"));
 var app = express_1.default();
 var port = process.env.PORT || 3000;
+var firestoreUrl = "https://us-central1-tokenx-1551e.cloudfunctions.net";
+//  const firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1";
 app.use(cors_1.default());
 app.use(express_1.default.json());
 // post functions
 app.post("/order", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var bodyString, firestoreUrl;
+    var bodyString;
     return __generator(this, function (_a) {
+        console.log("Request Body:", req.body);
         bodyString = JSON.stringify(req.body);
-        firestoreUrl = "https://us-central1-tokenx-1551e.cloudfunctions.net/addOrderToQHTTPFn";
-        // const firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1/addOrderToQHTTPFn";
-        node_fetch_1.default(firestoreUrl, {
+        console.log("Request Header: ", req.headers);
+        console.log("Received a Create order request with body " + bodyString);
+        node_fetch_1.default(firestoreUrl + "/addOrderToQHTTPFn", {
             method: "POST",
             headers: {
                 'Content-Type': 'application/json',
             },
             body: bodyString,
+        }).then(function (response) { return __awaiter(void 0, void 0, void 0, function () {
+            var responseText;
+            return __generator(this, function (_a) {
+                switch (_a.label) {
+                    case 0: return [4 /*yield*/, response.text()];
+                    case 1:
+                        responseText = _a.sent();
+                        // console.log("Response (text):", responseText);
+                        // console.log("Response (status):", response.status);
+                        if (response.status == 200) {
+                            res.status(200).send(responseText);
+                        }
+                        else {
+                            res.status(response.status).send(responseText);
+                        }
+                        return [2 /*return*/];
+                }
+            });
+        }); }).catch(function (error) {
+            res.status(404).send("firebase error: " + error);
+        });
+        return [2 /*return*/];
+    });
+}); });
+// delete functions
+app.delete("/order/:order_id", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var orderId, orderPair;
+    return __generator(this, function (_a) {
+        orderId = req.params.order_id;
+        orderPair = orderId.split("_")[0];
+        console.log("Deleting order: " + orderId + " on pair " + orderPair);
+        node_fetch_1.default(firestoreUrl + "/cancelOrderHTTPFn", {
+            method: "POST",
+            headers: {
+                'Content-Type': 'text/plain',
+            },
+            body: orderId,
         }).then(function (response) { return __awaiter(void 0, void 0, void 0, function () {
             var responseText;
             return __generator(this, function (_a) {
