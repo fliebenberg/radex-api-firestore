@@ -4,8 +4,6 @@
   "description": "Radex API",
   "main": "./dist/app.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev_old": "nodemon index.js",
     "compile": "tsc && node ./dist/app.js",
     "dev": "nodemon -e ts --exec \"npm run compile\"",
     "start": "node ./dist/app.js"
