@@ -9,18 +9,25 @@ const serviceAccount = require("./tokenx-1551e-9b4aaa761724.json");
 fb.initializeApp({
     credential: fb.credential.cert(serviceAccount)
 });
-const db = fb.firestore();
+export const db = fb.firestore();
 
 // initialise express
 import express from "express";
+import HTTP from "http";
 const app = express();
+export const server = HTTP.createServer(app);
 
+// set server constants
+export const port = process.env.PORT || 3000;
 
-const port = process.env.PORT || 3000;
-
- const firestoreUrl = "https://us-central1-tokenx-1551e.cloudfunctions.net";
+const firestoreUrl = "https://us-central1-tokenx-1551e.cloudfunctions.net";
 //  const firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1";
 
+// initialise websocket server
+import { initWss } from "./websockets";
+initWss(server);
+
+// implement express API behaviour
 app.use(cors());
 app.use(express.json());
 
@@ -221,6 +228,6 @@ async function getPairOrders(pair: string, orderType: string): Promise<any[]> {
 
 
 
-app.listen(port, () => {
-    console.log("Server listening on port 3000...");
+server.listen(port, () => {
+    console.log("API server listening on port "+ port +"...");
 })

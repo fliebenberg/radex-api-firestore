@@ -58,6 +58,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.port = exports.server = exports.db = void 0;
 var Utils = __importStar(require("./utils"));
 var cors_1 = __importDefault(require("cors"));
 var node_fetch_1 = __importDefault(require("node-fetch"));
@@ -67,23 +68,29 @@ var serviceAccount = require("./tokenx-1551e-9b4aaa761724.json");
 firebase_admin_1.default.initializeApp({
     credential: firebase_admin_1.default.credential.cert(serviceAccount)
 });
-var db = firebase_admin_1.default.firestore();
+exports.db = firebase_admin_1.default.firestore();
 // initialise express
 var express_1 = __importDefault(require("express"));
+var http_1 = __importDefault(require("http"));
 var app = express_1.default();
-var port = process.env.PORT || 3000;
+exports.server = http_1.default.createServer(app);
+// set server constants
+exports.port = process.env.PORT || 3000;
 var firestoreUrl = "https://us-central1-tokenx-1551e.cloudfunctions.net";
 //  const firestoreUrl = "http://localhost:5001/tokenx-1551e/us-central1";
+// initialise websocket server
+var websockets_1 = require("./websockets");
+websockets_1.initWss(exports.server);
+// implement express API behaviour
 app.use(cors_1.default());
 app.use(express_1.default.json());
 // post functions
 app.post("/order", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
     var bodyString;
     return __generator(this, function (_a) {
-        console.log("Request Body:", req.body);
         bodyString = JSON.stringify(req.body);
-        console.log("Request Header: ", req.headers);
-        console.log("Received a Create order request with body " + bodyString);
+        // console.log("Request Header: ", req.headers);
+        // console.log("Received a Create order request with body "+ bodyString);
         node_fetch_1.default(firestoreUrl + "/addOrderToQHTTPFn", {
             method: "POST",
             headers: {
@@ -115,12 +122,13 @@ app.post("/order", function (req, res) { return __awaiter(void 0, void 0, void 0
     });
 }); });
 // delete functions
+// cancel order
 app.delete("/order/:order_id", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var orderId, orderPair;
+    var orderId;
     return __generator(this, function (_a) {
         orderId = req.params.order_id;
-        orderPair = orderId.split("_")[0];
-        console.log("Deleting order: " + orderId + " on pair " + orderPair);
+        // const orderPair = orderId.split("_")[0];
+        // console.log("Deleting order: " + orderId +" on pair "+ orderPair);
         node_fetch_1.default(firestoreUrl + "/cancelOrderHTTPFn", {
             method: "POST",
             headers: {
@@ -134,8 +142,8 @@ app.delete("/order/:order_id", function (req, res) { return __awaiter(void 0, vo
                     case 0: return [4 /*yield*/, response.text()];
                     case 1:
                         responseText = _a.sent();
-                        console.log("Response (text):", responseText);
-                        console.log("Response (status):", response.status);
+                        // console.log("Response (text):", responseText);
+                        // console.log("Response (status):", response.status);
                         if (response.status == 200) {
                             res.status(200).send(responseText);
                         }
@@ -162,7 +170,7 @@ app.get("/tokens", function (req, res, next) { return __awaiter(void 0, void 0, 
     var result;
     return __generator(this, function (_a) {
         switch (_a.label) {
-            case 0: return [4 /*yield*/, db.collection("/tokens").get()];
+            case 0: return [4 /*yield*/, exports.db.collection("/tokens").get()];
             case 1:
                 result = (_a.sent()).docs.map(function (doc) {
                     return doc.data();
@@ -181,7 +189,7 @@ app.get("/token/:token_id", function (req, res, next) { return __awaiter(void 0,
     var result;
     return __generator(this, function (_a) {
         switch (_a.label) {
-            case 0: return [4 /*yield*/, db.collection("/tokens").doc(req.params.token_id).get()];
+            case 0: return [4 /*yield*/, exports.db.collection("/tokens").doc(req.params.token_id).get()];
             case 1:
                 result = (_a.sent()).data();
                 if (!result) {
@@ -198,7 +206,7 @@ app.get("/token/:token_id/pairs", function (req, res) { return __awaiter(void 0,
     var result;
     return __generator(this, function (_a) {
         switch (_a.label) {
-            case 0: return [4 /*yield*/, db.collection("/pairs").get()];
+            case 0: return [4 /*yield*/, exports.db.collection("/pairs").get()];
             case 1:
                 result = (_a.sent()).docs
                     .map(function (doc) { return doc.data(); })
@@ -219,7 +227,7 @@ app.get("/pairs", function (req, res, next) { return __awaiter(void 0, void 0, v
     var result;
     return __generator(this, function (_a) {
         switch (_a.label) {
-            case 0: return [4 /*yield*/, db.collection("/pairs").get()];
+            case 0: return [4 /*yield*/, exports.db.collection("/pairs").get()];
             case 1:
                 result = (_a.sent()).docs.map(function (doc) {
                     return doc.data();
@@ -238,7 +246,7 @@ app.get("/pair/:pair_id", function (req, res, next) { return __awaiter(void 0, v
     var result;
     return __generator(this, function (_a) {
         switch (_a.label) {
-            case 0: return [4 /*yield*/, db.collection("/pairs").doc(req.params.pair_id).get()];
+            case 0: return [4 /*yield*/, exports.db.collection("/pairs").doc(req.params.pair_id).get()];
             case 1:
                 result = (_a.sent()).data();
                 if (!result) {
@@ -402,7 +410,7 @@ function getPairOrders(pair, orderType) {
         var result;
         return __generator(this, function (_a) {
             switch (_a.label) {
-                case 0: return [4 /*yield*/, db.collection("/pairs/" + pair + "/" + orderType).get()];
+                case 0: return [4 /*yield*/, exports.db.collection("/pairs/" + pair + "/" + orderType).get()];
                 case 1:
                     result = (_a.sent()).docs
                         .map(function (doc) { return doc.data(); });
@@ -411,6 +419,6 @@ function getPairOrders(pair, orderType) {
         });
     });
 }
-app.listen(port, function () {
-    console.log("Server listening on port 3000...");
+exports.server.listen(exports.port, function () {
+    console.log("API server listening on port " + exports.port + "...");
 });
