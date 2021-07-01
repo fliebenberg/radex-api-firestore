@@ -26,7 +26,14 @@ var TransType;
     TransType["COMPLETED_ORDERS"] = "COMPLETED_ORDERS";
     TransType["TRADES"] = "TRADES";
 })(TransType || (TransType = {}));
+var ClientStatus;
+(function (ClientStatus) {
+    ClientStatus["ALIVE"] = "ALIVE";
+    ClientStatus["DEAD"] = "DEAD";
+})(ClientStatus || (ClientStatus = {}));
 var pairMap = new Map();
+var clientStatusMap = new Map();
+var checkClientStatusInterval = 5000;
 function initWss(server) {
     var wss = new ws_1.default.Server({ server: server });
     wss.on("listening", function () {
@@ -34,6 +41,7 @@ function initWss(server) {
     });
     wss.on("connection", function (client) {
         console.log("New websocket client connected");
+        clientStatusMap.set(client, ClientStatus.ALIVE);
         sendText(client, "Welcome new wss client!");
         client.on("message", function (messageStr) {
             var _a;
@@ -41,17 +49,18 @@ function initWss(server) {
             var message = JSON.parse(messageStr);
             switch (message.type) {
                 case MsgType.TEXT:
+                    console.log("Recevied TEXT message:", message.text);
                     break;
                 case MsgType.SUBSCRIBE:
                     if (message.pair) {
                         var pair = message.pair.toUpperCase();
                         if (pairMap.has(pair)) {
-                            (_a = pairMap.get(pair)) === null || _a === void 0 ? void 0 : _a.subs.push(client);
+                            (_a = pairMap.get(pair)) === null || _a === void 0 ? void 0 : _a.subs.add(client);
                         }
                         else {
                             pairMap.set(pair, {
                                 seq: 0,
-                                subs: [client],
+                                subs: new Set().add(client),
                             });
                             addPairListener(pair);
                         }
@@ -65,18 +74,44 @@ function initWss(server) {
                     sendText(client, "Non-Valid message type: " + message.type + ".", MsgType.ERROR);
             }
         });
+        client.on("ping", function () {
+            client.pong();
+        });
+        client.on("pong", function () {
+            console.log("Received PONG from client");
+            clientStatusMap.set(client, ClientStatus.ALIVE);
+        });
         client.on("close", function () {
-            console.log("Client connection closed");
-            unsubClient(client);
+            closeClient(client);
         });
     });
+    var clientInterval = setInterval(checkClientStatus, checkClientStatusInterval);
     wss.on("close", function () {
         console.log("Websocket Server closed");
+        clearInterval(clientInterval);
     });
     return wss;
 }
 exports.initWss = initWss;
-function unsubClient(client) {
+var checkClientStatus = function (wss) {
+    console.log("Checking client statuses...", clientStatusMap.size);
+    clientStatusMap.forEach(function (status, client) {
+        console.log("For client");
+        if (!client || status === ClientStatus.DEAD) {
+            console.log("Client DEAD. Closing client");
+            closeClient(client);
+        }
+        else {
+            console.log("Client still alive...");
+            clientStatusMap.set(client, ClientStatus.DEAD);
+            client.ping();
+        }
+    });
+};
+function closeClient(client) {
+    console.log("Closing client connection");
+    client.close();
+    clientStatusMap.delete(client);
 }
 function sendText(client, msg, type) {
     if (type === void 0) { type = MsgType.TEXT; }
@@ -89,36 +124,43 @@ function addPairListener(pair) {
             return createChangeRec(change, TransType.TRADES);
         });
         // console.log("Changes for pair "+ pair, changes);
-        sendUpdates(pair, changes);
+        sendPairUpdates(pair, changes);
     });
     app_1.db.collection("/pairs/" + pair + "/buy-orders").onSnapshot(function (querySnapshot) {
         var changes = querySnapshot.docChanges().map(function (change) {
             return createChangeRec(change, TransType.BUY_ORDERS);
         });
         // console.log("Changes for pair "+ pair, changes);
-        sendUpdates(pair, changes);
+        sendPairUpdates(pair, changes);
     });
     app_1.db.collection("/pairs/" + pair + "/sell-orders").onSnapshot(function (querySnapshot) {
         var changes = querySnapshot.docChanges().map(function (change) {
             return createChangeRec(change, TransType.BUY_ORDERS);
         });
         // console.log("Changes for pair "+ pair, changes);
-        sendUpdates(pair, changes);
+        sendPairUpdates(pair, changes);
     });
     app_1.db.collection("/pairs/" + pair + "/completed-orders").onSnapshot(function (querySnapshot) {
         var changes = querySnapshot.docChanges().map(function (change) {
             return createChangeRec(change, TransType.COMPLETED_ORDERS);
         });
         // console.log("Changes for pair "+ pair, changes);
-        sendUpdates(pair, changes);
+        sendPairUpdates(pair, changes);
     });
 }
-function sendUpdates(pair, changes) {
+function sendPairUpdates(pair, changes) {
     if (pairMap.has(pair)) {
         incSeq(pair);
         var thisPair_1 = pairMap.get(pair);
         thisPair_1.subs.forEach(function (client) {
-            client.send(JSON.stringify({ type: MsgType.UPDATE, pair: pair, seq: thisPair_1.seq, changes: changes }));
+            var _a;
+            if (client.readyState == 1) {
+                client.send(JSON.stringify({ type: MsgType.UPDATE, pair: pair, seq: thisPair_1.seq, changes: changes }));
+            }
+            else {
+                console.log("Removing non-open client from subs for pair " + pair);
+                (_a = pairMap.get(pair)) === null || _a === void 0 ? void 0 : _a.subs.delete(client); // remove client from subs if no longer open
+            }
         });
     }
 }
