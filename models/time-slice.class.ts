@@ -1,6 +1,7 @@
 export class TimeSlice {
   constructor(
     public startTime: number = 0,
+    public pair: string = "",
     public open: number = 0,
     public close: number = 0,
     public high: number = 0,
