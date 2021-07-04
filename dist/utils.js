@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.JsonFromMap = exports.getTokenNameFromPair = exports.getTimeSliceStart = exports.getLastElement = exports.roundTo = exports.calcPriceQuantity = exports.sortOrdersArray = exports.sortOrdersMap = exports.aggregateOrders = exports.createOrdersMap = exports.SortOrder = void 0;
+exports.JsonFromMap = exports.getTokenNameFromPair = exports.getLastElement = exports.roundTo = exports.calcPriceQuantity = exports.sortOrdersArray = exports.sortOrdersMap = exports.aggregateOrders = exports.createOrdersMap = exports.SortOrder = void 0;
 var order_class_1 = require("./models/order.class");
 var SortOrder;
 (function (SortOrder) {
@@ -108,12 +108,6 @@ function getLastElement(a) {
     }
 }
 exports.getLastElement = getLastElement;
-function getTimeSliceStart(date, TSDuration) {
-    if (TSDuration === void 0) { TSDuration = 15; }
-    var timeSliceSize = TSDuration * 60 * 1000;
-    return date - (date % timeSliceSize);
-}
-exports.getTimeSliceStart = getTimeSliceStart;
 function getTokenNameFromPair(pairCode, tokenNo) {
     if (tokenNo === 'token1') {
         return pairCode.split('-')[0];

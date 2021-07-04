@@ -102,10 +102,9 @@ export function getLastElement<T>(a: T[] | undefined): T | null {
   }
 }
 
-export function getTimeSliceStart(date: number, TSDuration: number = 15): number {
-  const timeSliceSize = TSDuration * 60 * 1000;
-  return date - (date % timeSliceSize);
-}
+
+
+
 
 export function getTokenNameFromPair(pairCode: string, tokenNo: 'token1' | 'token2'): string {
   if (tokenNo === 'token1') {

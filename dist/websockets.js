@@ -10,21 +10,19 @@ var __assign = (this && this.__assign) || function () {
     };
     return __assign.apply(this, arguments);
 };
-var __spreadArray = (this && this.__spreadArray) || function (to, from) {
-    for (var i = 0, il = from.length, j = to.length; i < il; i++, j++)
-        to[j] = from[i];
-    return to;
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.initWss = void 0;
+exports.initWss = exports.ChangeType = void 0;
 var ws_1 = __importDefault(require("ws"));
 var app_1 = require("./app");
 var trade_class_1 = require("./models/trade.class");
 var order_class_1 = require("./models/order.class");
 var pair_class_1 = require("./models/pair.class");
+var time_slice_class_1 = require("./models/time-slice.class");
+var pairState_class_1 = require("./models/pairState.class");
+var serverState_class_1 = require("./models/serverState.class");
 var MsgMethod;
 (function (MsgMethod) {
     MsgMethod["TEXT"] = "TEXT";
@@ -40,18 +38,14 @@ var ChangeType;
     ChangeType["ADD"] = "ADD";
     ChangeType["UPDATE"] = "UPDATE";
     ChangeType["DELETE"] = "DELETE";
-})(ChangeType || (ChangeType = {}));
+})(ChangeType = exports.ChangeType || (exports.ChangeType = {}));
 var ClientStatus;
 (function (ClientStatus) {
     ClientStatus["ALIVE"] = "ALIVE";
     ClientStatus["DEAD"] = "DEAD";
 })(ClientStatus || (ClientStatus = {}));
-var DBPairChannelArray = ["trades", "buy-orders", "sell-orders", "completed-orders"];
-var pairChannelArray = __spreadArray(__spreadArray(["info"], DBPairChannelArray), ["slices", "book"]);
-var SliceDurArray = ["1m", "5m", "15m", "30m", "1hr", "4h", "12h", "1D", "1W", "1M"];
-var pairsDB = new Map();
-// const pairMap = new Map<string, PairData>()
-// const listeners = new Map<string, ListenerData>();
+var serverState = new serverState_class_1.ServerState();
+var pairsState = serverState.pairsState;
 var clientStatusMap = new Map();
 var checkClientStatusInterval = 5000;
 function initWss(server) {
@@ -107,20 +101,20 @@ function processDBChanges(changes, channel) {
     changes.forEach(function (change) {
         var _a, _b, _c, _d;
         var newDoc = change.doc.data();
-        var pairCode = newDoc.pair ? newDoc.pair : newDoc.code;
+        // const pairCode = newDoc.pair ? newDoc.pair : newDoc.code
         // console.log("Processing change: Type: "+ change.type +" Channel: "+ channel +" Pair: "+ pairCode);
         var changeObj;
         switch (channel) {
             case "info":
                 changeObj = pair_class_1.Pair.create(newDoc);
                 break;
-            case "buy-orders":
+            case "buyOrders":
                 changeObj = order_class_1.Order.create(newDoc);
                 break;
-            case "sell-orders":
+            case "sellOrders":
                 changeObj = order_class_1.Order.create(newDoc);
                 break;
-            case "completed-orders":
+            case "completedOrders":
                 changeObj = order_class_1.Order.create(newDoc);
                 break;
             case "trades":
@@ -132,70 +126,83 @@ function processDBChanges(changes, channel) {
             throw Error("Unexpected error: Could not create DB changeObj.");
         }
         if (channel == "info") {
-            var pairDB = pairsDB.get(changeObj.code);
-            if (pairDB) {
+            var pairState = pairsState.get(changeObj.code);
+            if (pairState) {
                 switch (change.type) {
                     case "added": {
-                        pairDB[channel] = changeObj;
-                        pairsDB.set(changeObj.code, pairDB);
+                        pairState[channel] = changeObj;
+                        pairsState.set(changeObj.code, pairState);
                         break;
                     }
                     case "modified": {
-                        pairDB[channel] = changeObj;
-                        pairsDB.set(changeObj.code, pairDB);
+                        pairState[channel] = changeObj;
+                        pairsState.set(changeObj.code, pairState);
                         break;
                     }
                     case "removed": {
-                        (_a = pairDB.listeners) === null || _a === void 0 ? void 0 : _a.forEach(function (listenerData) {
+                        (_a = pairState.listeners) === null || _a === void 0 ? void 0 : _a.forEach(function (listenerData) {
                             if (listenerData.unsub) {
                                 listenerData.unsub();
                             }
                         }); // unsibscribe from DB listeners
-                        pairsDB.delete(changeObj.code); // delete pair from pairsDB
+                        pairsState.delete(changeObj.code); // delete pair from pairsDB
                         break;
                     }
                 }
             }
             else if (change.type != "removed") {
-                var pairDB_1 = { info: changeObj, listeners: new Map() };
+                // create new PairDB
+                var pairState_1 = new pairState_class_1.PairState(changeObj);
                 // initialise listener map for all channels in pair
-                var newListener_1 = { seq: 0, clients: new Set(), unsub: null };
-                pairChannelArray.forEach(function (pairChannel) {
-                    var _a;
-                    (_a = pairDB_1.listeners) === null || _a === void 0 ? void 0 : _a.set(pairChannel, newListener_1);
+                pairState_class_1.PAIR_CHANNELS.forEach(function (pairChannel) {
+                    var unsub = null;
+                    if (pairState_class_1.PAIR_DB_CHANNELS.includes(pairChannel)) {
+                        // console.log("Creating new pair listener: "+ DBChannel);
+                        var pairPath = "/pairs/" + changeObj.code + "/" + pairState_class_1.convertDBChannel(pairChannel);
+                        unsub = app_1.db.collection(pairPath).onSnapshot(function (snapshot) {
+                            processDBChanges(snapshot.docChanges(), pairChannel);
+                        });
+                    }
+                    if (pairChannel == "slices") {
+                        var slices_1 = new Map();
+                        time_slice_class_1.SLICE_DURS.forEach(function (sliceDur) {
+                            slices_1.set(sliceDur, new Map());
+                            pairState_1.listeners.set(pairChannel + sliceDur, { seq: 0, clients: new Set(), unsub: unsub });
+                        });
+                        pairState_1.slices = slices_1;
+                    }
+                    else {
+                        pairState_1.listeners.set(pairChannel, { seq: 0, clients: new Set(), unsub: unsub });
+                    }
                 });
-                // subscribe to feeds from DB for pair
-                DBPairChannelArray.forEach(function (DBChannel) {
-                    var _a;
-                    // console.log("Creating new pair listener: "+ DBChannel);
-                    var unsub = app_1.db.collection("/pairs/" + changeObj.code + "/" + DBChannel).onSnapshot(function (snapshot) {
-                        console.log("CHange detected for channel " + DBChannel + " in pair " + changeObj.code);
-                        processDBChanges(snapshot.docChanges(), DBChannel);
-                    });
-                    (_a = pairDB_1.listeners) === null || _a === void 0 ? void 0 : _a.set(DBChannel, __assign(__assign({}, newListener_1), { unsub: unsub }));
-                });
-                pairsDB.set(changeObj.code, pairDB_1);
+                pairsState.set(changeObj.code, pairState_1);
             }
         }
         else {
-            var pairDB = pairsDB.get(changeObj.pair);
-            if (pairDB) {
+            console.log("Change detected: Type " + change.type + " Channel: " + channel + " Pair: " + changeObj.pair + " Doc: " + changeObj.id);
+            var pairState = pairsState.get(changeObj.pair);
+            if (pairState) {
                 switch (change.type) {
                     case "added": {
-                        (_b = pairDB[channel]) === null || _b === void 0 ? void 0 : _b.set(changeObj.id, changeObj);
+                        (_b = pairState[channel]) === null || _b === void 0 ? void 0 : _b.set(changeObj.id, changeObj);
                         break;
                     }
                     case "modified": {
-                        (_c = pairDB[channel]) === null || _c === void 0 ? void 0 : _c.set(changeObj.id, changeObj);
+                        (_c = pairState[channel]) === null || _c === void 0 ? void 0 : _c.set(changeObj.id, changeObj);
                         break;
                     }
                     case "removed": {
-                        (_d = pairDB[channel]) === null || _d === void 0 ? void 0 : _d.delete(changeObj.id);
+                        (_d = pairState[channel]) === null || _d === void 0 ? void 0 : _d.delete(changeObj.id);
                         break;
                     }
                 }
-                pairsDB.set(changeObj.pair, pairDB);
-                sendChangeToSubs(changeObj.pair, createChangeRec(change, channel));
+                if (change.type != "removed" && channel == "trades") {
+                    var result = time_slice_class_1.updateSlices(pairState, changeObj);
+                    pairState = result.pairState;
+                    sendChangesToSubs(changeObj.pair, result.changes);
+                }
+                pairsState.set(changeObj.pair, pairState);
+                sendChangesToSubs(changeObj.pair, [createChangeRec(change, channel)]);
             }
             else {
                 console.log("Unexpected error (ignored): Received DB update for unrecognised pair.", changeObj);
@@ -205,18 +212,38 @@ function processDBChanges(changes, channel) {
 }
 // message handlers
 function handleMsgSubscribe(message, client) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d, _e;
     if (message.channel === "all" && message.symbol) {
-        pairChannelArray.forEach(function (channel) {
+        pairState_class_1.PAIR_CHANNELS
+            .filter(function (channel) { return channel != "slices"; })
+            .forEach(function (channel) {
             var newMsg = __assign(__assign({}, message), { channel: channel });
             handleMsgSubscribe(newMsg, client);
         });
     }
+    else if (message.channel == "listeners") {
+        return; // clinet cannot subscribe to listeners channel in pair
+    }
     else if (message.channel.includes("allpairs")) {
     }
-    else if (pairChannelArray.includes(message.channel)) {
-        if (message.symbol && Array.from(pairsDB.keys()).includes(message.symbol)) {
-            (_c = (_b = (_a = pairsDB.get(message.symbol)) === null || _a === void 0 ? void 0 : _a.listeners) === null || _b === void 0 ? void 0 : _b.get(message.channel)) === null || _c === void 0 ? void 0 : _c.clients.add(client);
+    else if (message.channel == "slices" || message.channel.includes("slices")) {
+        if (message.symbol && pairsState.has(message.symbol)) {
+            if (message.slice_dur && time_slice_class_1.SLICE_DURS.includes(message.slice_dur)) {
+                (_b = (_a = pairsState.get(message.symbol)) === null || _a === void 0 ? void 0 : _a.listeners.get(message.channel + message.slice_dur)) === null || _b === void 0 ? void 0 : _b.clients.add(client);
+                sendText(client, "Successfully subscribed client to slices with duration " + message.slice_dur);
+            }
+            else {
+                console.log("ERROR. Unknown or unspecified slice duration", message);
+                sendError(client, "Could not subscribe to channel: " + message.channel + ". Unknown or unspecified slice duration: " + message.slice_dur);
+            }
+        }
+        else {
+            sendError(client, "Could not subscribe client to channel: " + message.channel + ". Unknown or unspecified symbol: " + message.symbol);
+        }
+    }
+    else if (pairState_class_1.PAIR_CHANNELS.includes(message.channel)) {
+        if (message.symbol && pairsState.has(message.symbol)) {
+            (_e = (_d = (_c = pairsState.get(message.symbol)) === null || _c === void 0 ? void 0 : _c.listeners) === null || _d === void 0 ? void 0 : _d.get(message.channel)) === null || _e === void 0 ? void 0 : _e.clients.add(client);
         }
         else {
             sendError(client, "Could not subscribe client to channel: " + message.channel + ". Unknown or unspecified symbol: " + message.symbol);
@@ -244,7 +271,7 @@ function createListenerId(channel, symbol) {
     return listenerId;
 }
 function parseListenerId(listenerId) {
-    var channel = "trades";
+    var channel = "";
     var symbol = "";
     var extra = "";
     if (listenerId) {
@@ -292,35 +319,37 @@ function sendText(client, msg, method) {
 function sendError(client, msg) {
     sendText(client, msg, MsgMethod.ERROR);
 }
-function sendChangeToSubs(pair, change) {
-    var _a, _b;
-    // console.log("Sending change to subs", change);
-    if (pair) {
-        var listener_1 = (_b = (_a = pairsDB.get(pair)) === null || _a === void 0 ? void 0 : _a.listeners) === null || _b === void 0 ? void 0 : _b.get(change.channel);
-        if (listener_1) {
-            listener_1.seq++;
-            listener_1.clients.forEach(function (client) {
-                var _a, _b;
-                if (client.readyState == 1) {
-                    var returnMsg = {
-                        method: MsgMethod.UPDATE,
-                        channel: change.channel,
-                        seq: listener_1.seq,
-                        change: change,
-                    };
-                    if (pair) {
-                        returnMsg.symbol = pair;
+function sendChangesToSubs(pair, changes) {
+    changes.forEach(function (change) {
+        var _a, _b;
+        // console.log("Sending change to subs", change);
+        if (pair) {
+            var listener_1 = (_b = (_a = pairsState.get(pair)) === null || _a === void 0 ? void 0 : _a.listeners) === null || _b === void 0 ? void 0 : _b.get(change.channel);
+            if (listener_1) {
+                listener_1.seq++;
+                listener_1.clients.forEach(function (client) {
+                    var _a, _b;
+                    if (client.readyState == 1) {
+                        var returnMsg = {
+                            method: MsgMethod.UPDATE,
+                            channel: change.channel,
+                            seq: listener_1.seq,
+                            change: change,
+                        };
+                        if (pair) {
+                            returnMsg.symbol = pair;
+                        }
+                        client.send(JSON.stringify(returnMsg));
                     }
-                    client.send(JSON.stringify(returnMsg));
-                }
-                else {
-                    console.log("Removing non-open client from subscribed clients for listenerId " + createListenerId(change.channel, pair));
-                    listener_1.clients.delete(client); // remove client from subs if no longer open
-                    (_b = (_a = pairsDB.get(pair)) === null || _a === void 0 ? void 0 : _a.listeners) === null || _b === void 0 ? void 0 : _b.set(change.channel, listener_1);
-                }
-            });
+                    else {
+                        console.log("Removing non-open client from subscribed clients for listenerId " + createListenerId(change.channel, pair));
+                        listener_1.clients.delete(client); // remove client from subs if no longer open
+                        (_b = (_a = pairsState.get(pair)) === null || _a === void 0 ? void 0 : _a.listeners) === null || _b === void 0 ? void 0 : _b.set(change.channel, listener_1);
+                    }
+                });
+            }
         }
-    }
+    });
 }
 function createChangeRec(change, channel) {
     return {
