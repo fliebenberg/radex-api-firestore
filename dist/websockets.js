@@ -213,7 +213,7 @@ function processDBChanges(changes, channel) {
 // message handlers
 function handleMsgSubscribe(message, client) {
     var _a, _b, _c, _d, _e;
-    if (message.channel === "all" && message.symbol) {
+    if (message.channel === "all" && message.pair) {
         pairState_class_1.PAIR_CHANNELS
             .filter(function (channel) { return channel != "slices"; })
             .forEach(function (channel) {
@@ -222,39 +222,95 @@ function handleMsgSubscribe(message, client) {
         });
     }
     else if (message.channel == "listeners") {
-        return; // clinet cannot subscribe to listeners channel in pair
+        return; // client cannot subscribe to listeners channel
     }
     else if (message.channel.includes("allpairs")) {
+        // TODO still to implement
     }
     else if (message.channel == "slices" || message.channel.includes("slices")) {
-        if (message.symbol && pairsState.has(message.symbol)) {
-            if (message.slice_dur && time_slice_class_1.SLICE_DURS.includes(message.slice_dur)) {
-                (_b = (_a = pairsState.get(message.symbol)) === null || _a === void 0 ? void 0 : _a.listeners.get(message.channel + message.slice_dur)) === null || _b === void 0 ? void 0 : _b.clients.add(client);
-                sendText(client, "Successfully subscribed client to slices with duration " + message.slice_dur);
+        if (message.pair && pairsState.has(message.pair)) {
+            var sliceDur = message.channel.slice(6);
+            if (sliceDur && time_slice_class_1.SLICE_DURS.includes(sliceDur)) {
+                (_b = (_a = pairsState.get(message.pair)) === null || _a === void 0 ? void 0 : _a.listeners.get(message.channel)) === null || _b === void 0 ? void 0 : _b.clients.add(client);
+                sendDataOnSub(client, message.pair, message.channel);
+                sendText(client, "Successfully subscribed client to slices with duration " + sliceDur);
             }
             else {
                 console.log("ERROR. Unknown or unspecified slice duration", message);
-                sendError(client, "Could not subscribe to channel: " + message.channel + ". Unknown or unspecified slice duration: " + message.slice_dur);
+                sendError(client, "Could not subscribe to channel: " + message.channel + " Unknown slice duration.");
             }
         }
         else {
-            sendError(client, "Could not subscribe client to channel: " + message.channel + ". Unknown or unspecified symbol: " + message.symbol);
+            sendError(client, "Could not subscribe client to channel: " + message.channel + ". Unknown or unspecified pair: " + message.pair);
         }
     }
     else if (pairState_class_1.PAIR_CHANNELS.includes(message.channel)) {
-        if (message.symbol && pairsState.has(message.symbol)) {
-            (_e = (_d = (_c = pairsState.get(message.symbol)) === null || _c === void 0 ? void 0 : _c.listeners) === null || _d === void 0 ? void 0 : _d.get(message.channel)) === null || _e === void 0 ? void 0 : _e.clients.add(client);
+        if (message.pair && pairsState.has(message.pair)) {
+            (_e = (_d = (_c = pairsState.get(message.pair)) === null || _c === void 0 ? void 0 : _c.listeners) === null || _d === void 0 ? void 0 : _d.get(message.channel)) === null || _e === void 0 ? void 0 : _e.clients.add(client);
+            sendDataOnSub(client, message.pair, message.channel);
+            sendText(client, "Successfully subscribed client to channel: " + message.channel);
         }
         else {
-            sendError(client, "Could not subscribe client to channel: " + message.channel + ". Unknown or unspecified symbol: " + message.symbol);
+            sendError(client, "Could not subscribe client to channel: " + message.channel + ". Unknown or unspecified pair: " + message.pair);
         }
-        sendText(client, "Successfully subscribed client to channel: " + message.channel);
     }
     else {
         sendError(client, "Could not subscribe client to specified channel: " + message.channel);
     }
 }
-function createListenerId(channel, symbol) {
+function sendDataOnSub(client, pair, channel) {
+    var _a, _b;
+    console.log("Sending first time subscribe data for pair " + pair + " and channel " + channel);
+    var changes = [];
+    var pairState = pairsState.get(pair);
+    if (pairState) {
+        var seq_1 = (_a = pairState.listeners.get(channel)) === null || _a === void 0 ? void 0 : _a.seq;
+        if (channel == "info" || channel == "slice24h" || channel == "book") {
+            var data = pairState[channel];
+            changes.push({
+                method: MsgMethod.UPDATE,
+                seq: seq_1,
+                change: {
+                    type: ChangeType.ADD,
+                    channel: channel,
+                    data: data,
+                },
+            });
+        }
+        else if (pairState_class_1.PAIR_DB_CHANNELS.includes(channel)) {
+            pairState[channel].forEach(function (value) {
+                changes.push({
+                    method: MsgMethod.UPDATE,
+                    seq: seq_1,
+                    change: {
+                        type: ChangeType.ADD,
+                        channel: channel,
+                        data: value
+                    }
+                });
+            });
+        }
+        else if (channel.includes("slices")) {
+            var sliceDur_1 = channel.slice(6);
+            (_b = pairState["slices"].get(sliceDur_1)) === null || _b === void 0 ? void 0 : _b.forEach(function (value) {
+                changes.push({
+                    method: MsgMethod.UPDATE,
+                    seq: seq_1,
+                    change: {
+                        type: ChangeType.ADD,
+                        channel: channel + sliceDur_1,
+                        data: value
+                    }
+                });
+            });
+        }
+        else {
+            throw Error("Unexpected error: Cannot send subscribe data to unknown channel: " + channel);
+        }
+    }
+    client.send(JSON.stringify(changes));
+}
+function createListenerId(channel, pair) {
     var listenerId = "";
     if (!channel) {
         return "Error: No channel specified for listenerId";
@@ -263,16 +319,16 @@ function createListenerId(channel, symbol) {
         listenerId = channel;
     }
     else { // pair specific channels
-        if (!symbol) {
-            return "Error: No symbol specified for listenerId";
+        if (!pair) {
+            return "Error: No pair specified for listenerId";
         }
-        listenerId = symbol + ":" + channel;
+        listenerId = pair + ":" + channel;
     }
     return listenerId;
 }
 function parseListenerId(listenerId) {
     var channel = "";
-    var symbol = "";
+    var pair = "";
     var extra = "";
     if (listenerId) {
         var parts = listenerId.split(":");
@@ -280,7 +336,7 @@ function parseListenerId(listenerId) {
             channel = parts[0];
         }
         else if (parts.length >= 2) {
-            symbol = parts[0];
+            pair = parts[0];
             channel = parts[1];
             if (parts.length > 2) {
                 extra = parts[2];
@@ -290,9 +346,9 @@ function parseListenerId(listenerId) {
     else {
         throw Error("Unexpected error: no listenerId provided for function parseListenerId");
     }
-    return { channel: channel, symbol: symbol, extra: extra };
+    return { channel: channel, pair: pair, extra: extra };
 }
-var checkClientStatus = function (wss) {
+var checkClientStatus = function () {
     // console.log("Checking client statuses...", clientStatusMap.size);
     clientStatusMap.forEach(function (status, client) {
         // console.log("For client");
@@ -332,12 +388,11 @@ function sendChangesToSubs(pair, changes) {
                     if (client.readyState == 1) {
                         var returnMsg = {
                             method: MsgMethod.UPDATE,
-                            channel: change.channel,
                             seq: listener_1.seq,
                             change: change,
                         };
                         if (pair) {
-                            returnMsg.symbol = pair;
+                            returnMsg.pair = pair;
                         }
                         client.send(JSON.stringify(returnMsg));
                     }

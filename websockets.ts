@@ -205,7 +205,7 @@ function processDBChanges(changes: FirebaseFirestore.DocumentChange<FirebaseFire
 
 // message handlers
 function handleMsgSubscribe(message: any, client: WebSocket) {
-    if (message.channel === "all" && message.symbol) {
+    if (message.channel === "all" && message.pair) {
         PAIR_CHANNELS
             .filter(channel => channel != "slices")
             .forEach(channel => {
@@ -213,34 +213,86 @@ function handleMsgSubscribe(message: any, client: WebSocket) {
                 handleMsgSubscribe(newMsg, client);
             })
     } else if (message.channel == "listeners") {
-        return; // clinet cannot subscribe to listeners channel in pair
+        return; // client cannot subscribe to listeners channel
     } else if (message.channel.includes("allpairs")) {
-
+        // TODO still to implement
     } else if (message.channel == "slices" || message.channel.includes("slices")) {
-        if (message.symbol && pairsState.has(message.symbol)) {
-            if (message.slice_dur && SLICE_DURS.includes(message.slice_dur)) {
-                pairsState.get(message.symbol)?.listeners.get(message.channel+message.slice_dur)?.clients.add(client);
-                sendText(client, "Successfully subscribed client to slices with duration "+ message.slice_dur);
+        if (message.pair && pairsState.has(message.pair)) {
+            const sliceDur = message.channel.slice(6);
+            if (sliceDur && SLICE_DURS.includes(sliceDur)) {
+                pairsState.get(message.pair)?.listeners.get(message.channel)?.clients.add(client);
+                sendDataOnSub(client, message.pair, message.channel);
+                sendText(client, "Successfully subscribed client to slices with duration "+ sliceDur);
             } else {
                 console.log("ERROR. Unknown or unspecified slice duration", message);
-                sendError(client, "Could not subscribe to channel: "+ message.channel +". Unknown or unspecified slice duration: "+ message.slice_dur)
+                sendError(client, "Could not subscribe to channel: "+ message.channel +" Unknown slice duration.");
             }
         } else {
-            sendError(client, "Could not subscribe client to channel: "+ message.channel +". Unknown or unspecified symbol: "+ message.symbol);         
+            sendError(client, "Could not subscribe client to channel: "+ message.channel +". Unknown or unspecified pair: "+ message.pair);         
         }
     } else if (PAIR_CHANNELS.includes(message.channel)) {
-        if (message.symbol && pairsState.has(message.symbol)) {
-            pairsState.get(message.symbol)?.listeners?.get(message.channel)?.clients.add(client);
+        if (message.pair && pairsState.has(message.pair)) {
+            pairsState.get(message.pair)?.listeners?.get(message.channel)?.clients.add(client);
+            sendDataOnSub(client, message.pair, message.channel);
+            sendText(client, "Successfully subscribed client to channel: "+ message.channel);
         } else {
-            sendError(client, "Could not subscribe client to channel: "+ message.channel +". Unknown or unspecified symbol: "+ message.symbol);
+            sendError(client, "Could not subscribe client to channel: "+ message.channel +". Unknown or unspecified pair: "+ message.pair);
         }
-        sendText(client, "Successfully subscribed client to channel: "+ message.channel);
     } else {
         sendError(client, "Could not subscribe client to specified channel: " + message.channel);
     }
 }
 
-function createListenerId(channel: string, symbol: string): string {
+function sendDataOnSub(client: WebSocket, pair: string, channel: keyof PairState) {
+    console.log("Sending first time subscribe data for pair "+ pair +" and channel "+ channel);
+    const changes = [];
+    const pairState = pairsState.get(pair) as PairState;
+    if (pairState) {
+        const seq = pairState.listeners.get(channel)?.seq as number;
+        if (channel == "info" || channel == "slice24h" || channel == "book") {
+            const data = pairState[channel];
+            changes.push({
+                method: MsgMethod.UPDATE,
+                seq: seq,
+                change: {
+                    type: ChangeType.ADD,
+                    channel: channel,
+                    data: data,
+                },
+            })
+        } else if (PAIR_DB_CHANNELS.includes(channel)) {
+            pairState[channel].forEach (value => {
+                changes.push({
+                    method: MsgMethod.UPDATE,
+                    seq: seq,
+                    change: {
+                        type: ChangeType.ADD,
+                        channel: channel,
+                        data: value
+                    }
+                })
+            })
+        } else if (channel.includes("slices")) {
+            const sliceDur = channel.slice(6);
+            pairState["slices"].get(sliceDur)?.forEach(value => {
+                changes.push({
+                    method: MsgMethod.UPDATE,
+                    seq: seq,
+                    change: {
+                        type: ChangeType.ADD,
+                        channel: channel+sliceDur,
+                        data: value
+                    }
+                })
+            });
+        } else {
+            throw Error("Unexpected error: Cannot send subscribe data to unknown channel: "+ channel);
+        }
+    }
+    client.send(JSON.stringify(changes));
+}
+
+function createListenerId(channel: string, pair: string): string {
     let listenerId = "";
     if (!channel) {
         return "Error: No channel specified for listenerId";
@@ -248,24 +300,24 @@ function createListenerId(channel: string, symbol: string): string {
     if (channel.includes("allpairs")) {
         listenerId = channel;
     } else { // pair specific channels
-        if (!symbol) {
-            return "Error: No symbol specified for listenerId";
+        if (!pair) {
+            return "Error: No pair specified for listenerId";
         }
-        listenerId = symbol + ":" + channel;
+        listenerId = pair + ":" + channel;
     }
     return listenerId;
 } 
 
-function parseListenerId(listenerId: string): {channel: string, symbol: string, extra: string} {
+function parseListenerId(listenerId: string): {channel: string, pair: string, extra: string} {
     let channel =""; 
-    let symbol = "";
+    let pair = "";
     let extra = "";
     if (listenerId) {
         const parts = listenerId.split(":");
         if (parts.length === 1) {
             channel = parts[0];
         } else if (parts.length >= 2) {
-            symbol = parts[0];
+            pair = parts[0];
             channel = parts[1];
             if (parts.length > 2) {
                 extra = parts[2];
@@ -274,10 +326,10 @@ function parseListenerId(listenerId: string): {channel: string, symbol: string, 
     } else {
         throw Error("Unexpected error: no listenerId provided for function parseListenerId");
     }
-    return { channel, symbol, extra};
+    return { channel, pair, extra};
 }
 
-const checkClientStatus = function (wss: WebSocket.Server) {
+const checkClientStatus = function () {
     // console.log("Checking client statuses...", clientStatusMap.size);
     clientStatusMap.forEach((status: ClientStatus, client: WebSocket) => {
         // console.log("For client");
@@ -317,12 +369,11 @@ function sendChangesToSubs(pair: string, changes: ChangeRec[]) {
                     if (client.readyState == 1) {
                         let returnMsg: any = {
                             method: MsgMethod.UPDATE,
-                            channel: change.channel,
                             seq: listener.seq,
                             change: change,
                         };
                         if (pair) {
-                            returnMsg.symbol = pair;
+                            returnMsg.pair = pair;
                         }
                         client.send(JSON.stringify(returnMsg))
                     } else {
