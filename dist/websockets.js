@@ -227,12 +227,15 @@ function handleMsgSubscribe(message, client) {
     else if (message.channel.includes("allpairs")) {
         // TODO still to implement
     }
+    else if (message.channel.includes("tickers")) {
+        // TODO still to implement
+    }
     else if (message.channel == "slices" || message.channel.includes("slices")) {
         if (message.pair && pairsState.has(message.pair)) {
             var sliceDur = message.channel.slice(6);
             if (sliceDur && time_slice_class_1.SLICE_DURS.includes(sliceDur)) {
-                (_b = (_a = pairsState.get(message.pair)) === null || _a === void 0 ? void 0 : _a.listeners.get(message.channel)) === null || _b === void 0 ? void 0 : _b.clients.add(client);
                 sendDataOnSub(client, message.pair, message.channel);
+                (_b = (_a = pairsState.get(message.pair)) === null || _a === void 0 ? void 0 : _a.listeners.get(message.channel)) === null || _b === void 0 ? void 0 : _b.clients.add(client);
                 sendText(client, "Successfully subscribed client to slices with duration " + sliceDur);
             }
             else {
@@ -246,8 +249,8 @@ function handleMsgSubscribe(message, client) {
     }
     else if (pairState_class_1.PAIR_CHANNELS.includes(message.channel)) {
         if (message.pair && pairsState.has(message.pair)) {
-            (_e = (_d = (_c = pairsState.get(message.pair)) === null || _c === void 0 ? void 0 : _c.listeners) === null || _d === void 0 ? void 0 : _d.get(message.channel)) === null || _e === void 0 ? void 0 : _e.clients.add(client);
             sendDataOnSub(client, message.pair, message.channel);
+            (_e = (_d = (_c = pairsState.get(message.pair)) === null || _c === void 0 ? void 0 : _c.listeners) === null || _d === void 0 ? void 0 : _d.get(message.channel)) === null || _e === void 0 ? void 0 : _e.clients.add(client);
             sendText(client, "Successfully subscribed client to channel: " + message.channel);
         }
         else {
@@ -264,29 +267,21 @@ function sendDataOnSub(client, pair, channel) {
     var changes = [];
     var pairState = pairsState.get(pair);
     if (pairState) {
-        var seq_1 = (_a = pairState.listeners.get(channel)) === null || _a === void 0 ? void 0 : _a.seq;
+        var seq = (_a = pairState.listeners.get(channel)) === null || _a === void 0 ? void 0 : _a.seq;
         if (channel == "info" || channel == "slice24h" || channel == "book") {
             var data = pairState[channel];
             changes.push({
-                method: MsgMethod.UPDATE,
-                seq: seq_1,
-                change: {
-                    type: ChangeType.ADD,
-                    channel: channel,
-                    data: data,
-                },
+                type: ChangeType.ADD,
+                channel: channel,
+                data: data,
             });
         }
         else if (pairState_class_1.PAIR_DB_CHANNELS.includes(channel)) {
             pairState[channel].forEach(function (value) {
                 changes.push({
-                    method: MsgMethod.UPDATE,
-                    seq: seq_1,
-                    change: {
-                        type: ChangeType.ADD,
-                        channel: channel,
-                        data: value
-                    }
+                    type: ChangeType.ADD,
+                    channel: channel,
+                    data: value
                 });
             });
         }
@@ -294,21 +289,51 @@ function sendDataOnSub(client, pair, channel) {
             var sliceDur_1 = channel.slice(6);
             (_b = pairState["slices"].get(sliceDur_1)) === null || _b === void 0 ? void 0 : _b.forEach(function (value) {
                 changes.push({
-                    method: MsgMethod.UPDATE,
-                    seq: seq_1,
-                    change: {
-                        type: ChangeType.ADD,
-                        channel: channel + sliceDur_1,
-                        data: value
-                    }
+                    type: ChangeType.ADD,
+                    channel: channel + sliceDur_1,
+                    data: value
                 });
             });
         }
         else {
             throw Error("Unexpected error: Cannot send subscribe data to unknown channel: " + channel);
         }
+        client.send(JSON.stringify({
+            method: MsgMethod.UPDATE,
+            seq: seq,
+            pair: pair,
+            changes: changes
+        }));
     }
-    client.send(JSON.stringify(changes));
+}
+function sendChangesToSubs(pair, changes) {
+    changes.forEach(function (change) {
+        var _a, _b;
+        // console.log("Sending change to subs", change);
+        if (pair) {
+            var listener_1 = (_b = (_a = pairsState.get(pair)) === null || _a === void 0 ? void 0 : _a.listeners) === null || _b === void 0 ? void 0 : _b.get(change.channel);
+            if (listener_1) {
+                listener_1.seq++;
+                listener_1.clients.forEach(function (client) {
+                    var _a, _b;
+                    if (client.readyState == 1) {
+                        var returnMsg = {
+                            method: MsgMethod.UPDATE,
+                            seq: listener_1.seq,
+                            pair: pair,
+                            changes: [change],
+                        };
+                        client.send(JSON.stringify(returnMsg));
+                    }
+                    else {
+                        console.log("Removing non-open client from subscribed clients for listenerId " + createListenerId(change.channel, pair));
+                        listener_1.clients.delete(client); // remove client from subs if no longer open
+                        (_b = (_a = pairsState.get(pair)) === null || _a === void 0 ? void 0 : _a.listeners) === null || _b === void 0 ? void 0 : _b.set(change.channel, listener_1);
+                    }
+                });
+            }
+        }
+    });
 }
 function createListenerId(channel, pair) {
     var listenerId = "";
@@ -374,37 +399,6 @@ function sendText(client, msg, method) {
 }
 function sendError(client, msg) {
     sendText(client, msg, MsgMethod.ERROR);
-}
-function sendChangesToSubs(pair, changes) {
-    changes.forEach(function (change) {
-        var _a, _b;
-        // console.log("Sending change to subs", change);
-        if (pair) {
-            var listener_1 = (_b = (_a = pairsState.get(pair)) === null || _a === void 0 ? void 0 : _a.listeners) === null || _b === void 0 ? void 0 : _b.get(change.channel);
-            if (listener_1) {
-                listener_1.seq++;
-                listener_1.clients.forEach(function (client) {
-                    var _a, _b;
-                    if (client.readyState == 1) {
-                        var returnMsg = {
-                            method: MsgMethod.UPDATE,
-                            seq: listener_1.seq,
-                            change: change,
-                        };
-                        if (pair) {
-                            returnMsg.pair = pair;
-                        }
-                        client.send(JSON.stringify(returnMsg));
-                    }
-                    else {
-                        console.log("Removing non-open client from subscribed clients for listenerId " + createListenerId(change.channel, pair));
-                        listener_1.clients.delete(client); // remove client from subs if no longer open
-                        (_b = (_a = pairsState.get(pair)) === null || _a === void 0 ? void 0 : _a.listeners) === null || _b === void 0 ? void 0 : _b.set(change.channel, listener_1);
-                    }
-                });
-            }
-        }
-    });
 }
 function createChangeRec(change, channel) {
     return {

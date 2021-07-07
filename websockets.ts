@@ -216,12 +216,14 @@ function handleMsgSubscribe(message: any, client: WebSocket) {
         return; // client cannot subscribe to listeners channel
     } else if (message.channel.includes("allpairs")) {
         // TODO still to implement
+    } else if (message.channel.includes("tickers")) {
+        // TODO still to implement
     } else if (message.channel == "slices" || message.channel.includes("slices")) {
         if (message.pair && pairsState.has(message.pair)) {
             const sliceDur = message.channel.slice(6);
             if (sliceDur && SLICE_DURS.includes(sliceDur)) {
-                pairsState.get(message.pair)?.listeners.get(message.channel)?.clients.add(client);
                 sendDataOnSub(client, message.pair, message.channel);
+                pairsState.get(message.pair)?.listeners.get(message.channel)?.clients.add(client);
                 sendText(client, "Successfully subscribed client to slices with duration "+ sliceDur);
             } else {
                 console.log("ERROR. Unknown or unspecified slice duration", message);
@@ -232,8 +234,8 @@ function handleMsgSubscribe(message: any, client: WebSocket) {
         }
     } else if (PAIR_CHANNELS.includes(message.channel)) {
         if (message.pair && pairsState.has(message.pair)) {
-            pairsState.get(message.pair)?.listeners?.get(message.channel)?.clients.add(client);
             sendDataOnSub(client, message.pair, message.channel);
+            pairsState.get(message.pair)?.listeners?.get(message.channel)?.clients.add(client);
             sendText(client, "Successfully subscribed client to channel: "+ message.channel);
         } else {
             sendError(client, "Could not subscribe client to channel: "+ message.channel +". Unknown or unspecified pair: "+ message.pair);
@@ -245,51 +247,70 @@ function handleMsgSubscribe(message: any, client: WebSocket) {
 
 function sendDataOnSub(client: WebSocket, pair: string, channel: keyof PairState) {
     console.log("Sending first time subscribe data for pair "+ pair +" and channel "+ channel);
-    const changes = [];
+    const changes: ChangeRec[] = [];
     const pairState = pairsState.get(pair) as PairState;
     if (pairState) {
         const seq = pairState.listeners.get(channel)?.seq as number;
         if (channel == "info" || channel == "slice24h" || channel == "book") {
             const data = pairState[channel];
             changes.push({
-                method: MsgMethod.UPDATE,
-                seq: seq,
-                change: {
-                    type: ChangeType.ADD,
-                    channel: channel,
-                    data: data,
-                },
+                type: ChangeType.ADD,
+                channel: channel,
+                data: data,
             })
         } else if (PAIR_DB_CHANNELS.includes(channel)) {
             pairState[channel].forEach (value => {
                 changes.push({
-                    method: MsgMethod.UPDATE,
-                    seq: seq,
-                    change: {
-                        type: ChangeType.ADD,
-                        channel: channel,
-                        data: value
-                    }
+                    type: ChangeType.ADD,
+                    channel: channel,
+                    data: value
                 })
             })
         } else if (channel.includes("slices")) {
             const sliceDur = channel.slice(6);
             pairState["slices"].get(sliceDur)?.forEach(value => {
                 changes.push({
-                    method: MsgMethod.UPDATE,
-                    seq: seq,
-                    change: {
-                        type: ChangeType.ADD,
-                        channel: channel+sliceDur,
-                        data: value
-                    }
+                    type: ChangeType.ADD,
+                    channel: channel+sliceDur,
+                    data: value
                 })
             });
         } else {
             throw Error("Unexpected error: Cannot send subscribe data to unknown channel: "+ channel);
         }
+        client.send(JSON.stringify({
+            method: MsgMethod.UPDATE,
+            seq: seq,
+            pair: pair,
+            changes: changes}));
     }
-    client.send(JSON.stringify(changes));
+}
+
+function sendChangesToSubs(pair: string, changes: ChangeRec[]) {
+    changes.forEach(change => {
+        // console.log("Sending change to subs", change);
+        if (pair) {
+            const listener = pairsState.get(pair)?.listeners?.get(change.channel);
+            if (listener) {
+                listener.seq ++;
+                listener.clients.forEach(client => {
+                    if (client.readyState == 1) {
+                        let returnMsg: any = {
+                            method: MsgMethod.UPDATE,
+                            seq: listener.seq,
+                            pair: pair,
+                            changes: [change],
+                        };
+                        client.send(JSON.stringify(returnMsg))
+                    } else {
+                        console.log("Removing non-open client from subscribed clients for listenerId "+ createListenerId(change.channel, pair));
+                        listener.clients.delete(client);  // remove client from subs if no longer open
+                        pairsState.get(pair)?.listeners?.set(change.channel, listener);
+                    }
+                })
+            }
+        }
+    })
 }
 
 function createListenerId(channel: string, pair: string): string {
@@ -358,34 +379,7 @@ function sendError(client: WebSocket, msg: string) {
     sendText(client, msg, MsgMethod.ERROR);
 }
 
-function sendChangesToSubs(pair: string, changes: ChangeRec[]) {
-    changes.forEach(change => {
-        // console.log("Sending change to subs", change);
-        if (pair) {
-            const listener = pairsState.get(pair)?.listeners?.get(change.channel);
-            if (listener) {
-                listener.seq ++;
-                listener.clients.forEach(client => {
-                    if (client.readyState == 1) {
-                        let returnMsg: any = {
-                            method: MsgMethod.UPDATE,
-                            seq: listener.seq,
-                            change: change,
-                        };
-                        if (pair) {
-                            returnMsg.pair = pair;
-                        }
-                        client.send(JSON.stringify(returnMsg))
-                    } else {
-                        console.log("Removing non-open client from subscribed clients for listenerId "+ createListenerId(change.channel, pair));
-                        listener.clients.delete(client);  // remove client from subs if no longer open
-                        pairsState.get(pair)?.listeners?.set(change.channel, listener);
-                    }
-                })
-            }
-        }
-    })
-}
+
 
 function createChangeRec(
     change: FirebaseFirestore.DocumentChange<FirebaseFirestore.DocumentData>,
