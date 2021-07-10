@@ -66,7 +66,10 @@ function initWss(server) {
                     console.log("Received TEXT message:", message.text);
                     break;
                 case MsgMethod.SUBSCRIBE:
-                    handleMsgSubscribe(message, client);
+                    handleMsgSub(message, client);
+                    break;
+                case MsgMethod.UNSUBSCRIBE:
+                    handleMsgUnsub(message, client);
                     break;
                 default:
                     sendText(client, "Non-Valid message method: " + message.method + ".", MsgMethod.ERROR);
@@ -157,7 +160,7 @@ function processDBChanges(changes, channel) {
                 pairState_class_1.PAIR_CHANNELS.forEach(function (pairChannel) {
                     var unsub = null;
                     if (pairState_class_1.PAIR_DB_CHANNELS.includes(pairChannel)) {
-                        // console.log("Creating new pair listener: "+ DBChannel);
+                        // console.log("Creating new pair listener: "+ pairChannel, changeObj);
                         var pairPath = "/pairs/" + changeObj.code + "/" + pairState_class_1.convertDBChannel(pairChannel);
                         unsub = app_1.db.collection(pairPath).onSnapshot(function (snapshot) {
                             processDBChanges(snapshot.docChanges(), pairChannel);
@@ -211,24 +214,26 @@ function processDBChanges(changes, channel) {
     });
 }
 // message handlers
-function handleMsgSubscribe(message, client) {
+function handleMsgSub(message, client) {
     var _a, _b, _c, _d, _e;
     if (message.channel === "all" && message.pair) {
         pairState_class_1.PAIR_CHANNELS
             .filter(function (channel) { return channel != "slices"; })
             .forEach(function (channel) {
             var newMsg = __assign(__assign({}, message), { channel: channel });
-            handleMsgSubscribe(newMsg, client);
+            handleMsgSub(newMsg, client);
         });
     }
     else if (message.channel == "listeners") {
         return; // client cannot subscribe to listeners channel
     }
-    else if (message.channel.includes("allpairs")) {
-        // TODO still to implement
-    }
-    else if (message.channel.includes("tickers")) {
-        // TODO still to implement
+    else if (message.channel == "allpairs" || message.channel == "tickers") {
+        var channelStr_1 = message.channel == "allpairs" ? "info" : "slice24h";
+        serverState.pairsState.forEach(function (pairState) {
+            var _a, _b;
+            (_a = pairState.listeners.get(channelStr_1)) === null || _a === void 0 ? void 0 : _a.clients.add(client);
+            sendDataOnSub(client, (_b = pairState === null || pairState === void 0 ? void 0 : pairState.info) === null || _b === void 0 ? void 0 : _b.code, channelStr_1);
+        });
     }
     else if (message.channel == "slices" || message.channel.includes("slices")) {
         if (message.pair && pairsState.has(message.pair)) {
@@ -261,49 +266,106 @@ function handleMsgSubscribe(message, client) {
         sendError(client, "Could not subscribe client to specified channel: " + message.channel);
     }
 }
+function handleMsgUnsub(message, client) {
+    var _a, _b, _c, _d, _e, _f;
+    if (message.channel === "all" && message.pair) {
+        pairState_class_1.PAIR_CHANNELS
+            .filter(function (channel) { return channel != "slices"; })
+            .forEach(function (channel) {
+            var newMsg = __assign(__assign({}, message), { channel: channel });
+            handleMsgUnsub(newMsg, client);
+        });
+    }
+    else if (message.channel == "listeners") {
+        return; // client cannot subscribe to listeners channel
+    }
+    else if (message.channel == "allpairs" || message.channel == "tickers") {
+        serverState.pairsState.forEach(function (pairState) {
+            var _a;
+            var channelStr = message.channel == "allpairs" ? "info" : "slice24h";
+            (_a = pairState.listeners.get(channelStr)) === null || _a === void 0 ? void 0 : _a.clients.delete(client);
+        });
+        sendText(client, "Successfully unsubscribed client from " + message.channel);
+    }
+    else if (message.channel == "tickers") {
+        (_a = serverState.listeners.get(message.channel)) === null || _a === void 0 ? void 0 : _a.clients.delete(client);
+        sendText(client, "Successfully unsubscribed client from " + message.channel);
+    }
+    else if (message.channel == "slices" || message.channel.includes("slices")) {
+        if (message.pair && pairsState.has(message.pair)) {
+            var sliceDur = message.channel.slice(6);
+            if (sliceDur && time_slice_class_1.SLICE_DURS.includes(sliceDur)) {
+                (_c = (_b = pairsState.get(message.pair)) === null || _b === void 0 ? void 0 : _b.listeners.get(message.channel)) === null || _c === void 0 ? void 0 : _c.clients.delete(client);
+                sendText(client, "Successfully unsubscribed client from slices with duration " + sliceDur);
+            }
+            else {
+                console.log("ERROR. Unknown or unspecified slice duration", message);
+                sendError(client, "Could not unsubscribe from channel: " + message.channel + " Unknown slice duration.");
+            }
+        }
+        else {
+            sendError(client, "Could not unsubscribe client from channel: " + message.channel + ". Unknown or unspecified pair: " + message.pair);
+        }
+    }
+    else if (pairState_class_1.PAIR_CHANNELS.includes(message.channel)) {
+        if (message.pair && pairsState.has(message.pair)) {
+            (_f = (_e = (_d = pairsState.get(message.pair)) === null || _d === void 0 ? void 0 : _d.listeners) === null || _e === void 0 ? void 0 : _e.get(message.channel)) === null || _f === void 0 ? void 0 : _f.clients.delete(client);
+            sendText(client, "Successfully unsubscribed client from channel: " + message.channel);
+        }
+        else {
+            sendError(client, "Could not unsubscribe client from channel: " + message.channel + ". Unknown or unspecified pair: " + message.pair);
+        }
+    }
+    else {
+        sendError(client, "Could not unsubscribe client from specified channel: " + message.channel);
+    }
+}
 function sendDataOnSub(client, pair, channel) {
     var _a, _b;
     console.log("Sending first time subscribe data for pair " + pair + " and channel " + channel);
     var changes = [];
-    var pairState = pairsState.get(pair);
-    if (pairState) {
-        var seq = (_a = pairState.listeners.get(channel)) === null || _a === void 0 ? void 0 : _a.seq;
-        if (channel == "info" || channel == "slice24h" || channel == "book") {
-            var data = pairState[channel];
-            changes.push({
-                type: ChangeType.ADD,
-                channel: channel,
-                data: data,
-            });
-        }
-        else if (pairState_class_1.PAIR_DB_CHANNELS.includes(channel)) {
-            pairState[channel].forEach(function (value) {
+    if (pair && pairsState.has(pair)) {
+        var pairState = pairsState.get(pair);
+        channel = channel;
+        if (pairState) {
+            var seq = (_a = pairState.listeners.get(channel)) === null || _a === void 0 ? void 0 : _a.seq;
+            if (channel == "info" || channel == "slice24h" || channel == "orderbook") {
+                var data = pairState[channel];
                 changes.push({
                     type: ChangeType.ADD,
                     channel: channel,
-                    data: value
+                    data: data,
                 });
-            });
-        }
-        else if (channel.includes("slices")) {
-            var sliceDur_1 = channel.slice(6);
-            (_b = pairState["slices"].get(sliceDur_1)) === null || _b === void 0 ? void 0 : _b.forEach(function (value) {
-                changes.push({
-                    type: ChangeType.ADD,
-                    channel: channel + sliceDur_1,
-                    data: value
+            }
+            else if (pairState_class_1.PAIR_DB_CHANNELS.includes(channel)) {
+                pairState[channel].forEach(function (value) {
+                    changes.push({
+                        type: ChangeType.ADD,
+                        channel: channel,
+                        data: value
+                    });
                 });
-            });
+            }
+            else if (channel.includes("slices")) {
+                var sliceDur = channel.slice(6);
+                (_b = pairState["slices"].get(sliceDur)) === null || _b === void 0 ? void 0 : _b.forEach(function (value) {
+                    changes.push({
+                        type: ChangeType.ADD,
+                        channel: channel,
+                        data: value
+                    });
+                });
+            }
+            else {
+                throw Error("Unexpected error: Cannot send subscribe data to unknown channel: " + channel);
+            }
+            client.send(JSON.stringify({
+                method: MsgMethod.UPDATE,
+                seq: seq,
+                pair: pair,
+                changes: changes
+            }));
         }
-        else {
-            throw Error("Unexpected error: Cannot send subscribe data to unknown channel: " + channel);
-        }
-        client.send(JSON.stringify({
-            method: MsgMethod.UPDATE,
-            seq: seq,
-            pair: pair,
-            changes: changes
-        }));
     }
 }
 function sendChangesToSubs(pair, changes) {

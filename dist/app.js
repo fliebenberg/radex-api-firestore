@@ -375,7 +375,7 @@ function getPairOrdersRes(orderType, req, res) {
                 case 1:
                     result = _a.sent();
                     if (!result || result.length == 0) {
-                        res.status(404).send("No " + orderType + " found for pair " + req.params.pair_id);
+                        res.json([]);
                     }
                     else {
                         res.json(result);

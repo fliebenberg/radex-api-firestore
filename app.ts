@@ -201,7 +201,7 @@ app.get("/pair/:pair_id/wallet/:wallet_id/trades", async (req, res, next) => {
 async function getPairOrdersRes(orderType: string, req: any, res: any) : Promise<any> {
     const result = await getPairOrders(req.params.pair_id, orderType);
     if (!result || result.length == 0) {
-        res.status(404).send("No "+ orderType +" found for pair "+ req.params.pair_id);
+        res.json([]);
     } else {
         res.json(result);
     }

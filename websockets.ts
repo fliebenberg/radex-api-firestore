@@ -6,7 +6,7 @@ import { Trade } from "./models/trade.class";
 import { Order } from "./models/order.class";
 import { Pair } from "./models/pair.class";
 import { addToSlice, getTimeSliceStart, SLICE_DURS, TimeSlice, updateSlices } from './models/time-slice.class';
-import { convertDBChannel, DBChannel, PairState, PAIR_CHANNELS, PAIR_DB_CHANNELS } from './models/pairState.class';
+import { convertDBChannel, DBChannel, ListenerData, PairState, PAIR_CHANNELS, PAIR_DB_CHANNELS } from './models/pairState.class';
 import { ServerState } from './models/serverState.class';
 
 enum MsgMethod {
@@ -64,7 +64,10 @@ export function initWss(server: HTTP.Server): WebSocket.Server {
                     console.log("Received TEXT message:", message.text);
                     break;
                 case MsgMethod.SUBSCRIBE:
-                    handleMsgSubscribe(message, client);
+                    handleMsgSub(message, client);
+                    break;
+                case MsgMethod.UNSUBSCRIBE:
+                    handleMsgUnsub(message, client);
                     break;
                 default:
                     sendText(client, "Non-Valid message method: "+ message.method +".", MsgMethod.ERROR);
@@ -150,7 +153,7 @@ function processDBChanges(changes: FirebaseFirestore.DocumentChange<FirebaseFire
                 PAIR_CHANNELS.forEach(pairChannel => {
                         let unsub: any = null;
                         if (PAIR_DB_CHANNELS.includes(pairChannel)) {
-                            // console.log("Creating new pair listener: "+ DBChannel);
+                            // console.log("Creating new pair listener: "+ pairChannel, changeObj);
                             const pairPath = "/pairs/"+ changeObj.code +"/"+ convertDBChannel(pairChannel as DBChannel);
                             unsub = db.collection(pairPath).onSnapshot(snapshot => {
                                 processDBChanges(snapshot.docChanges(), pairChannel as DBChannel)
@@ -204,20 +207,22 @@ function processDBChanges(changes: FirebaseFirestore.DocumentChange<FirebaseFire
 
 
 // message handlers
-function handleMsgSubscribe(message: any, client: WebSocket) {
+function handleMsgSub(message: any, client: WebSocket) {
     if (message.channel === "all" && message.pair) {
         PAIR_CHANNELS
             .filter(channel => channel != "slices")
             .forEach(channel => {
                 const newMsg = {...message, channel: channel};
-                handleMsgSubscribe(newMsg, client);
+                handleMsgSub(newMsg, client);
             })
     } else if (message.channel == "listeners") {
         return; // client cannot subscribe to listeners channel
-    } else if (message.channel.includes("allpairs")) {
-        // TODO still to implement
-    } else if (message.channel.includes("tickers")) {
-        // TODO still to implement
+    } else if (message.channel == "allpairs" || message.channel == "tickers") {
+        const channelStr = message.channel == "allpairs"? "info" : "slice24h";
+        serverState.pairsState.forEach(pairState => {
+            pairState.listeners.get(channelStr)?.clients.add(client);
+            sendDataOnSub(client, pairState?.info?.code as string, channelStr)
+        })
     } else if (message.channel == "slices" || message.channel.includes("slices")) {
         if (message.pair && pairsState.has(message.pair)) {
             const sliceDur = message.channel.slice(6);
@@ -245,44 +250,92 @@ function handleMsgSubscribe(message: any, client: WebSocket) {
     }
 }
 
+function handleMsgUnsub(message: any, client: WebSocket) {
+    if (message.channel === "all" && message.pair) {
+        PAIR_CHANNELS
+            .filter(channel => channel != "slices")
+            .forEach(channel => {
+                const newMsg = {...message, channel: channel};
+                handleMsgUnsub(newMsg, client);
+            })
+    } else if (message.channel == "listeners") {
+        return; // client cannot subscribe to listeners channel
+    } else if (message.channel == "allpairs" || message.channel == "tickers") {
+        serverState.pairsState.forEach(pairState => {
+            const channelStr = message.channel == "allpairs"? "info" : "slice24h";
+            pairState.listeners.get(channelStr)?.clients.delete(client);
+        })
+        sendText(client, "Successfully unsubscribed client from " + message.channel);
+    } else if (message.channel == "tickers") {
+        serverState.listeners.get(message.channel)?.clients.delete(client);
+        sendText(client, "Successfully unsubscribed client from " + message.channel);
+    } else if (message.channel == "slices" || message.channel.includes("slices")) {
+        if (message.pair && pairsState.has(message.pair)) {
+            const sliceDur = message.channel.slice(6);
+            if (sliceDur && SLICE_DURS.includes(sliceDur)) {
+                pairsState.get(message.pair)?.listeners.get(message.channel)?.clients.delete(client);
+                sendText(client, "Successfully unsubscribed client from slices with duration "+ sliceDur);
+            } else {
+                console.log("ERROR. Unknown or unspecified slice duration", message);
+                sendError(client, "Could not unsubscribe from channel: "+ message.channel +" Unknown slice duration.");
+            }
+        } else {
+            sendError(client, "Could not unsubscribe client from channel: "+ message.channel +". Unknown or unspecified pair: "+ message.pair);         
+        }
+    } else if (PAIR_CHANNELS.includes(message.channel)) {
+        if (message.pair && pairsState.has(message.pair)) {
+            pairsState.get(message.pair)?.listeners?.get(message.channel)?.clients.delete(client);
+            sendText(client, "Successfully unsubscribed client from channel: "+ message.channel);
+        } else {
+            sendError(client, "Could not unsubscribe client from channel: "+ message.channel +". Unknown or unspecified pair: "+ message.pair);
+        }
+    } else {
+        sendError(client, "Could not unsubscribe client from specified channel: " + message.channel);
+    }
+}
+
 function sendDataOnSub(client: WebSocket, pair: string, channel: keyof PairState) {
     console.log("Sending first time subscribe data for pair "+ pair +" and channel "+ channel);
     const changes: ChangeRec[] = [];
-    const pairState = pairsState.get(pair) as PairState;
-    if (pairState) {
-        const seq = pairState.listeners.get(channel)?.seq as number;
-        if (channel == "info" || channel == "slice24h" || channel == "book") {
-            const data = pairState[channel];
-            changes.push({
-                type: ChangeType.ADD,
-                channel: channel,
-                data: data,
-            })
-        } else if (PAIR_DB_CHANNELS.includes(channel)) {
-            pairState[channel].forEach (value => {
+    if (pair && pairsState.has(pair)) {
+        const pairState = pairsState.get(pair) as PairState;
+        channel = channel as keyof PairState
+        if (pairState) {
+            const seq = pairState.listeners.get(channel)?.seq as number;
+            if (channel == "info" || channel == "slice24h" || channel == "orderbook") {
+                const data = pairState[channel];
                 changes.push({
                     type: ChangeType.ADD,
                     channel: channel,
-                    data: value
+                    data: data,
                 })
-            })
-        } else if (channel.includes("slices")) {
-            const sliceDur = channel.slice(6);
-            pairState["slices"].get(sliceDur)?.forEach(value => {
-                changes.push({
-                    type: ChangeType.ADD,
-                    channel: channel+sliceDur,
-                    data: value
+            } else if (PAIR_DB_CHANNELS.includes(channel)) {
+                pairState[channel].forEach (value => {
+                    changes.push({
+                        type: ChangeType.ADD,
+                        channel: channel,
+                        data: value
+                    })
                 })
-            });
-        } else {
-            throw Error("Unexpected error: Cannot send subscribe data to unknown channel: "+ channel);
+            } else if (channel.includes("slices")) {
+                const sliceDur = channel.slice(6);
+                pairState["slices"].get(sliceDur)?.forEach(value => {
+                    changes.push({
+                        type: ChangeType.ADD,
+                        channel: channel,
+                        data: value
+                    })
+                });
+            } else {
+                throw Error("Unexpected error: Cannot send subscribe data to unknown channel: "+ channel);
+            }
+            client.send(JSON.stringify({
+                method: MsgMethod.UPDATE,
+                seq: seq,
+                pair: pair,
+                changes: changes
+            }));
         }
-        client.send(JSON.stringify({
-            method: MsgMethod.UPDATE,
-            seq: seq,
-            pair: pair,
-            changes: changes}));
     }
 }
 
