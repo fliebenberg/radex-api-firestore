@@ -23,6 +23,55 @@ export function createOrdersMap(orderObjs: any[], sort: SortOrder = SortOrder.AS
   return sortedMap;
 }
 
+export function updateOrderbookEntry(
+  changeType: string, newOrder: Order, oldEntry: AggregateOrderEntry | undefined, oldOrder: Order | null = null
+): AggregateOrderEntry | null {
+  let newEntry: AggregateOrderEntry | null;
+  if (changeType == "added") {
+    if (oldEntry) {
+      newEntry = {
+        pair: oldEntry.pair,
+        side: oldEntry.side,
+        price: oldEntry.price,
+        quantity: oldEntry.quantity + newOrder.quantity - newOrder.quantityFulfilled,
+        orderCount: oldEntry.orderCount + 1,
+      };
+    } else {
+      newEntry = {
+        pair: newOrder.pair,
+        side: newOrder.side,
+        price: newOrder.price,
+        quantity: newOrder.quantity - newOrder.quantityFulfilled,
+        orderCount: 1,
+      }
+    }
+  } else if (changeType == "modified" && oldOrder && oldEntry) {
+    newEntry =  {
+      pair: oldEntry.pair,
+      side: oldEntry.side,
+      price: oldEntry.price,
+      quantity: oldEntry.quantity + oldOrder.quantityFulfilled - newOrder.quantityFulfilled,
+      orderCount: oldEntry.orderCount,
+    }
+  } else if (changeType == "removed" && oldEntry) {
+    if (oldEntry.orderCount == 1) {
+      newEntry = null;
+    } else {
+      newEntry = {
+        pair: oldEntry.pair,
+        side: oldEntry.side,
+        price: oldEntry.price,
+        quantity: oldEntry.quantity - (newOrder.quantity - newOrder.quantityFulfilled),
+        orderCount: oldEntry.orderCount -1,
+      }
+    }
+  } else {
+    console.log("ERROR! Could not update orderbook enrty.");
+    newEntry = null;
+  }
+  return newEntry;
+}
+
 export function aggregateOrders(ordersMap: Map<number, Order[]>): AggregateOrderEntry[] {
     const aggOrdersArray: AggregateOrderEntry[] = [];
     ordersMap.forEach((priceOrders: Order[], price: number) => {

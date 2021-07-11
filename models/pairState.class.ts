@@ -1,4 +1,4 @@
-import { Order } from "./order.class"
+import { AggregateOrderEntry, Order } from "./order.class"
 import { Pair } from "./pair.class"
 import { TimeSlice } from "./time-slice.class"
 import { Trade } from "./trade.class"
@@ -22,7 +22,8 @@ export class PairState {
         public buyOrders: Map<string, Order> = new Map<string, Order>(),
         public sellOrders: Map<string, Order> = new Map<string, Order>(),
         public completedOrders: Map<string, Order> = new Map<string, Order>(),
-        public orderbook: OrderBook | null = null,
+        public orderbookBuys: Map<number, AggregateOrderEntry> = new Map(),
+        public orderbookSells: Map<number, AggregateOrderEntry> = new Map(),
         public listeners: Map<string, ListenerData> = new Map<string, ListenerData>(),
         public slices: Map<string, Map<number, TimeSlice>> = new Map<string, Map<number, TimeSlice>>(),
         public slice24h: TimeSlice | null = null,
@@ -31,7 +32,7 @@ export class PairState {
 
 export const PAIR_DB_CHANNELS = ["trades", "buyOrders", "sellOrders", "completedOrders"];
 export type DBChannel = "info" | "trades" | "buyOrders" | "sellOrders" | "completedOrders";
-export const PAIR_CHANNELS = ["orderbook", "listeners", "slices", "slice24h", ...PAIR_DB_CHANNELS];
+export const PAIR_CHANNELS = ["orderbookBuys", "orderbookSells", "listeners", "slices", "slice24h", ...PAIR_DB_CHANNELS];
 
 export function convertDBChannel(channel: DBChannel): string {
     switch (channel) {

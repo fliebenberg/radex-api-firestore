@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.JsonFromMap = exports.getTokenNameFromPair = exports.getLastElement = exports.roundTo = exports.calcPriceQuantity = exports.sortOrdersArray = exports.sortOrdersMap = exports.aggregateOrders = exports.createOrdersMap = exports.SortOrder = void 0;
+exports.JsonFromMap = exports.getTokenNameFromPair = exports.getLastElement = exports.roundTo = exports.calcPriceQuantity = exports.sortOrdersArray = exports.sortOrdersMap = exports.aggregateOrders = exports.updateOrderbookEntry = exports.createOrdersMap = exports.SortOrder = void 0;
 var order_class_1 = require("./models/order.class");
 var SortOrder;
 (function (SortOrder) {
@@ -28,6 +28,59 @@ function createOrdersMap(orderObjs, sort) {
     return sortedMap;
 }
 exports.createOrdersMap = createOrdersMap;
+function updateOrderbookEntry(changeType, newOrder, oldEntry, oldOrder) {
+    if (oldOrder === void 0) { oldOrder = null; }
+    var newEntry;
+    if (changeType == "added") {
+        if (oldEntry) {
+            newEntry = {
+                pair: oldEntry.pair,
+                side: oldEntry.side,
+                price: oldEntry.price,
+                quantity: oldEntry.quantity + newOrder.quantity - newOrder.quantityFulfilled,
+                orderCount: oldEntry.orderCount + 1,
+            };
+        }
+        else {
+            newEntry = {
+                pair: newOrder.pair,
+                side: newOrder.side,
+                price: newOrder.price,
+                quantity: newOrder.quantity - newOrder.quantityFulfilled,
+                orderCount: 1,
+            };
+        }
+    }
+    else if (changeType == "modified" && oldOrder && oldEntry) {
+        newEntry = {
+            pair: oldEntry.pair,
+            side: oldEntry.side,
+            price: oldEntry.price,
+            quantity: oldEntry.quantity + oldOrder.quantityFulfilled - newOrder.quantityFulfilled,
+            orderCount: oldEntry.orderCount,
+        };
+    }
+    else if (changeType == "removed" && oldEntry) {
+        if (oldEntry.orderCount == 1) {
+            newEntry = null;
+        }
+        else {
+            newEntry = {
+                pair: oldEntry.pair,
+                side: oldEntry.side,
+                price: oldEntry.price,
+                quantity: oldEntry.quantity - (newOrder.quantity - newOrder.quantityFulfilled),
+                orderCount: oldEntry.orderCount - 1,
+            };
+        }
+    }
+    else {
+        console.log("ERROR! Could not update orderbook enrty.");
+        newEntry = null;
+    }
+    return newEntry;
+}
+exports.updateOrderbookEntry = updateOrderbookEntry;
 function aggregateOrders(ordersMap) {
     var aggOrdersArray = [];
     ordersMap.forEach(function (priceOrders, price) {

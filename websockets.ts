@@ -8,6 +8,7 @@ import { Pair } from "./models/pair.class";
 import { addToSlice, getTimeSliceStart, SLICE_DURS, TimeSlice, updateSlices } from './models/time-slice.class';
 import { convertDBChannel, DBChannel, ListenerData, PairState, PAIR_CHANNELS, PAIR_DB_CHANNELS } from './models/pairState.class';
 import { ServerState } from './models/serverState.class';
+import { updateOrderbookEntry } from './utils';
 
 enum MsgMethod {
     TEXT = "TEXT",
@@ -44,9 +45,15 @@ const pairsState = serverState.pairsState;
 const clientStatusMap = new Map<WebSocket, ClientStatus>()
 const checkClientStatusInterval = 5000;
 
-export function initWss(server: HTTP.Server): WebSocket.Server {
-    const wss = new WebSocket.Server({server: server});
+export async function initWss(server: HTTP.Server): Promise<WebSocket.Server> {
+    console.log("Initializing websocket server");
     setupDBListeners();
+    console.log("Waiting 10 seconds for database to load...");
+    await delay(10000);
+    console.log("Waited 10 seconds for database to load...");
+    
+    const wss = new WebSocket.Server({server: server});
+    
     wss.on("listening", () => {
         console.log("Websocket server is listening on "+ port +"...");
     })
@@ -70,6 +77,7 @@ export function initWss(server: HTTP.Server): WebSocket.Server {
                     handleMsgUnsub(message, client);
                     break;
                 default:
+                    // console.log("ERROR! Non valid message method.", message);
                     sendText(client, "Non-Valid message method: "+ message.method +".", MsgMethod.ERROR);
             }
         })
@@ -99,10 +107,15 @@ export function initWss(server: HTTP.Server): WebSocket.Server {
     return wss;
 }
 
+async function delay(ms: number) {
+    await new Promise(res => setTimeout(res, ms));
+}
+
 function setupDBListeners() {
     db.collection("pairs").onSnapshot(snapshot => {
         processDBChanges(snapshot.docChanges(), "info");
     })
+
 }
 
 function processDBChanges(changes: FirebaseFirestore.DocumentChange<FirebaseFirestore.DocumentData>[], channel: DBChannel) {
@@ -176,12 +189,14 @@ function processDBChanges(changes: FirebaseFirestore.DocumentChange<FirebaseFire
             console.log("Change detected: Type "+change.type+" Channel: "+ channel +" Pair: "+ changeObj.pair +" Doc: "+changeObj.id);
             let pairState = pairsState.get(changeObj.pair);
             if (pairState) {
+                let oldObj = null;
                 switch (change.type) {
                     case "added": {
                         pairState[channel]?.set(changeObj.id, changeObj);
                         break;
                     }
                     case "modified": {
+                        oldObj = pairState[channel].get(changeObj.id);
                         pairState[channel]?.set(changeObj.id, changeObj);
                         break;
                     }
@@ -190,6 +205,28 @@ function processDBChanges(changes: FirebaseFirestore.DocumentChange<FirebaseFire
                         break;
                     }
                 }
+                // update orderbook
+                if (channel == "buyOrders" || channel == "sellOrders") {
+                    const orderbookChannel = channel == "buyOrders" ? "orderbookBuys" : "orderbookSells";
+                    const oldOrder = change.type == "modified" ? Order.create(oldObj) : null;
+                    const newEntry = updateOrderbookEntry(
+                        change.type, changeObj as Order, pairState[orderbookChannel].get(changeObj.price), oldOrder 
+                    );
+                    const orderbookChange: ChangeRec = {
+                        type: newEntry? ChangeType.UPDATE : ChangeType.DELETE,
+                        channel: orderbookChannel,
+                        data: newEntry ? newEntry : changeObj.price,
+                    }
+                    if (newEntry) {
+                        pairState[orderbookChannel] = pairState[orderbookChannel].set(changeObj.price, newEntry);
+                    } else {
+                        const newState = pairState[orderbookChannel];
+                        newState.delete(changeObj.price);
+                        pairState[orderbookChannel] = newState;
+                    }
+                    sendChangesToSubs(changeObj.pair, [orderbookChange]);
+                }
+                // update slices
                 if (change.type != "removed" && channel == "trades") {
                     const result = updateSlices(pairState, changeObj);
                     pairState = result.pairState;
@@ -208,14 +245,7 @@ function processDBChanges(changes: FirebaseFirestore.DocumentChange<FirebaseFire
 
 // message handlers
 function handleMsgSub(message: any, client: WebSocket) {
-    if (message.channel === "all" && message.pair) {
-        PAIR_CHANNELS
-            .filter(channel => channel != "slices")
-            .forEach(channel => {
-                const newMsg = {...message, channel: channel};
-                handleMsgSub(newMsg, client);
-            })
-    } else if (message.channel == "listeners") {
+    if (message.channel == "listeners") {
         return; // client cannot subscribe to listeners channel
     } else if (message.channel == "allpairs" || message.channel == "tickers") {
         const channelStr = message.channel == "allpairs"? "info" : "slice24h";
@@ -266,9 +296,6 @@ function handleMsgUnsub(message: any, client: WebSocket) {
             pairState.listeners.get(channelStr)?.clients.delete(client);
         })
         sendText(client, "Successfully unsubscribed client from " + message.channel);
-    } else if (message.channel == "tickers") {
-        serverState.listeners.get(message.channel)?.clients.delete(client);
-        sendText(client, "Successfully unsubscribed client from " + message.channel);
     } else if (message.channel == "slices" || message.channel.includes("slices")) {
         if (message.pair && pairsState.has(message.pair)) {
             const sliceDur = message.channel.slice(6);
@@ -302,14 +329,14 @@ function sendDataOnSub(client: WebSocket, pair: string, channel: keyof PairState
         channel = channel as keyof PairState
         if (pairState) {
             const seq = pairState.listeners.get(channel)?.seq as number;
-            if (channel == "info" || channel == "slice24h" || channel == "orderbook") {
+            if (channel == "info" || channel == "slice24h") {
                 const data = pairState[channel];
                 changes.push({
                     type: ChangeType.ADD,
                     channel: channel,
                     data: data,
                 })
-            } else if (PAIR_DB_CHANNELS.includes(channel)) {
+            } else if (PAIR_DB_CHANNELS.includes(channel) || channel == "orderbookBuys" || channel == "orderbookSells") {
                 pairState[channel].forEach (value => {
                     changes.push({
                         type: ChangeType.ADD,
