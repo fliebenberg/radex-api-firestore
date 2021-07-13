@@ -119,6 +119,8 @@ function initWss(server) {
                                 case MsgMethod.UNSUBSCRIBE:
                                     handleMsgUnsub(message, client);
                                     break;
+                                case MsgMethod.NEWORDER:
+                                    break;
                                 default:
                                     // console.log("ERROR! Non valid message method.", message);
                                     sendText(client, "Non-Valid message method: " + message.method + ".", MsgMethod.ERROR);

@@ -123,10 +123,14 @@ app.post("/order", function (req, res) { return __awaiter(void 0, void 0, void 0
 }); });
 // delete functions
 // cancel order
-app.delete("/order/:order_id", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+app.delete("/order", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
     var orderId;
     return __generator(this, function (_a) {
-        orderId = req.params.order_id;
+        orderId = req.body.order_id;
+        if (!orderId) {
+            res.status(400).send("No order_id specified in body of request.");
+            return [2 /*return*/];
+        }
         // const orderPair = orderId.split("_")[0];
         // console.log("Deleting order: " + orderId +" on pair "+ orderPair);
         node_fetch_1.default(firestoreUrl + "/cancelOrderHTTPFn", {
@@ -185,15 +189,21 @@ app.get("/tokens", function (req, res, next) { return __awaiter(void 0, void 0, 
         }
     });
 }); });
-app.get("/token/:token_id", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
-    var result;
+app.get("/token", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+    var tokenId, result;
     return __generator(this, function (_a) {
         switch (_a.label) {
-            case 0: return [4 /*yield*/, exports.db.collection("/tokens").doc(req.params.token_id).get()];
+            case 0:
+                tokenId = req.body.token_id;
+                if (!tokenId) {
+                    res.status(400).send("No token_id specified in body of request.");
+                    return [2 /*return*/];
+                }
+                return [4 /*yield*/, exports.db.collection("/tokens").doc(tokenId).get()];
             case 1:
                 result = (_a.sent()).data();
                 if (!result) {
-                    res.status(404).send("Token not found: " + req.params.token_id);
+                    res.status(404).send("Token not found: " + tokenId);
                 }
                 else {
                     res.json(result);
@@ -202,19 +212,25 @@ app.get("/token/:token_id", function (req, res, next) { return __awaiter(void 0,
         }
     });
 }); });
-app.get("/token/:token_id/pairs", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
-    var result;
+app.get("/token/pairs", function (req, res) { return __awaiter(void 0, void 0, void 0, function () {
+    var tokenId, result;
     return __generator(this, function (_a) {
         switch (_a.label) {
-            case 0: return [4 /*yield*/, exports.db.collection("/pairs").get()];
+            case 0:
+                tokenId = req.body.token_id;
+                if (!tokenId) {
+                    res.status(400).send("No token_id specified in body of request.");
+                    return [2 /*return*/];
+                }
+                return [4 /*yield*/, exports.db.collection("/pairs").get()];
             case 1:
                 result = (_a.sent()).docs
                     .map(function (doc) { return doc.data(); })
                     .filter(function (doc) {
-                    return doc.token1 == req.params.token_id || doc.token2 == req.params.token_id;
+                    return doc.token1 == tokenId || doc.token2 == tokenId;
                 });
                 if (!result || result.length == 0) {
-                    res.status(404).send("No pairs found for token " + req.params.token_id);
+                    res.status(404).send("No pairs found for token " + tokenId);
                 }
                 else {
                     res.json(result);
@@ -242,15 +258,21 @@ app.get("/pairs", function (req, res, next) { return __awaiter(void 0, void 0, v
         }
     });
 }); });
-app.get("/pair/:pair_id", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
-    var result;
+app.get("/pair", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+    var pairId, result;
     return __generator(this, function (_a) {
         switch (_a.label) {
-            case 0: return [4 /*yield*/, exports.db.collection("/pairs").doc(req.params.pair_id).get()];
+            case 0:
+                pairId = req.body.pair_id;
+                if (!pairId) {
+                    res.status(400).send("No pair_id specified in body of request.");
+                    return [2 /*return*/];
+                }
+                return [4 /*yield*/, exports.db.collection("/pairs").doc(pairId).get()];
             case 1:
                 result = (_a.sent()).data();
                 if (!result) {
-                    res.status(404).send("Pair not found: " + req.params.pair_id);
+                    res.status(404).send("Pair not found: " + pairId);
                 }
                 else {
                     res.json(result);
@@ -259,7 +281,7 @@ app.get("/pair/:pair_id", function (req, res, next) { return __awaiter(void 0, v
         }
     });
 }); });
-app.get("/pair/:pair_id/buy-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+app.get("/pair/buy-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0: return [4 /*yield*/, getPairOrdersRes("buy-orders", req, res)];
@@ -269,7 +291,7 @@ app.get("/pair/:pair_id/buy-orders", function (req, res, next) { return __awaite
         }
     });
 }); });
-app.get("/pair/:pair_id/sell-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+app.get("/pair/sell-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0: return [4 /*yield*/, getPairOrdersRes("sell-orders", req, res)];
@@ -279,7 +301,7 @@ app.get("/pair/:pair_id/sell-orders", function (req, res, next) { return __await
         }
     });
 }); });
-app.get("/pair/:pair_id/completed-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+app.get("/pair/completed-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0: return [4 /*yield*/, getPairOrdersRes("completed-orders", req, res)];
@@ -289,7 +311,7 @@ app.get("/pair/:pair_id/completed-orders", function (req, res, next) { return __
         }
     });
 }); });
-app.get("/pair/:pair_id/trades", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+app.get("/pair/trades", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0: return [4 /*yield*/, getPairOrdersRes("trades", req, res)];
@@ -299,15 +321,21 @@ app.get("/pair/:pair_id/trades", function (req, res, next) { return __awaiter(vo
         }
     });
 }); });
-app.get("/pair/:pair_id/orderbook", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
-    var buyOrders, buyOrdersResult, sellOrders, sellOrdersResult, result;
+app.get("/pair/orderbook", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+    var pairId, buyOrders, buyOrdersResult, sellOrders, sellOrdersResult, result;
     return __generator(this, function (_a) {
         switch (_a.label) {
-            case 0: return [4 /*yield*/, getPairOrders(req.params.pair_id, "buy-orders")];
+            case 0:
+                pairId = req.body.pair_id;
+                if (!pairId) {
+                    res.status(400).send("No pair_id specified in body of request.");
+                    return [2 /*return*/];
+                }
+                return [4 /*yield*/, getPairOrders(pairId, "buy-orders")];
             case 1:
                 buyOrders = _a.sent();
                 buyOrdersResult = Utils.aggregateOrders(Utils.createOrdersMap(buyOrders));
-                return [4 /*yield*/, getPairOrders(req.params.pair_id, "sell-orders")];
+                return [4 /*yield*/, getPairOrders(pairId, "sell-orders")];
             case 2:
                 sellOrders = _a.sent();
                 sellOrdersResult = Utils.aggregateOrders(Utils.createOrdersMap(sellOrders));
@@ -317,7 +345,7 @@ app.get("/pair/:pair_id/orderbook", function (req, res, next) { return __awaiter
                 };
                 console.log("MapString: ", result);
                 if (!result) {
-                    res.status(404).send("Pair not found: " + req.params.pair_id);
+                    res.status(404).send("Pair not found: " + pairId);
                 }
                 else {
                     res.json(result);
@@ -326,7 +354,7 @@ app.get("/pair/:pair_id/orderbook", function (req, res, next) { return __awaiter
         }
     });
 }); });
-app.get("/pair/:pair_id/wallet/:wallet_id/buy-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+app.get("/pair/wallet/buy-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0: return [4 /*yield*/, getPairWalletRes("buy-orders", req, res)];
@@ -336,7 +364,7 @@ app.get("/pair/:pair_id/wallet/:wallet_id/buy-orders", function (req, res, next)
         }
     });
 }); });
-app.get("/pair/:pair_id/wallet/:wallet_id/sell-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+app.get("/pair/wallet/sell-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0: return [4 /*yield*/, getPairWalletRes("sell-orders", req, res)];
@@ -346,7 +374,7 @@ app.get("/pair/:pair_id/wallet/:wallet_id/sell-orders", function (req, res, next
         }
     });
 }); });
-app.get("/pair/:pair_id/wallet/:wallet_id/completed-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+app.get("/pair/wallet/completed-orders", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0: return [4 /*yield*/, getPairWalletRes("completed-orders", req, res)];
@@ -356,7 +384,7 @@ app.get("/pair/:pair_id/wallet/:wallet_id/completed-orders", function (req, res,
         }
     });
 }); });
-app.get("/pair/:pair_id/wallet/:wallet_id/trades", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
+app.get("/pair/wallet/trades", function (req, res, next) { return __awaiter(void 0, void 0, void 0, function () {
     return __generator(this, function (_a) {
         switch (_a.label) {
             case 0: return [4 /*yield*/, getPairWalletRes("trades", req, res)];
@@ -368,10 +396,16 @@ app.get("/pair/:pair_id/wallet/:wallet_id/trades", function (req, res, next) { r
 }); });
 function getPairOrdersRes(orderType, req, res) {
     return __awaiter(this, void 0, void 0, function () {
-        var result;
+        var pairId, result;
         return __generator(this, function (_a) {
             switch (_a.label) {
-                case 0: return [4 /*yield*/, getPairOrders(req.params.pair_id, orderType)];
+                case 0:
+                    pairId = req.body.pair_id;
+                    if (!pairId) {
+                        res.status(400).send("No pair_id specified in body of request.");
+                        return [2 /*return*/];
+                    }
+                    return [4 /*yield*/, getPairOrders(pairId, orderType)];
                 case 1:
                     result = _a.sent();
                     if (!result || result.length == 0) {
@@ -387,15 +421,26 @@ function getPairOrdersRes(orderType, req, res) {
 }
 function getPairWalletRes(orderType, req, res) {
     return __awaiter(this, void 0, void 0, function () {
-        var result;
+        var pairId, walletId, result;
         return __generator(this, function (_a) {
             switch (_a.label) {
-                case 0: return [4 /*yield*/, getPairOrders(req.params.pair_id, orderType)];
+                case 0:
+                    pairId = req.body.pair_id;
+                    walletId = req.body.wallet_id;
+                    if (!pairId) {
+                        res.status(400).send("No pair_id specified in body of request.");
+                        return [2 /*return*/];
+                    }
+                    if (!walletId) {
+                        res.status(400).send("No wallet_id specified in body of request.");
+                        return [2 /*return*/];
+                    }
+                    return [4 /*yield*/, getPairOrders(pairId, orderType)];
                 case 1:
                     result = (_a.sent())
-                        .filter(function (order) { return order.owner == req.params.wallet_id || order.buyer == req.params.wallet_id || order.seller == req.params.wallet_id; });
+                        .filter(function (order) { return order.owner == walletId || order.buyer == walletId || order.seller == walletId; });
                     if (!result || result.length == 0) {
-                        res.status(404).send("No " + orderType + " found for wallet " + req.params.wallet_id + " in pair " + req.params.pair_id);
+                        res.status(404).send("No " + orderType + " found for wallet " + walletId + " in pair " + pairId);
                     }
                     else {
                         res.status(200).json(result);

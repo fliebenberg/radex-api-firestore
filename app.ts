@@ -62,8 +62,12 @@ app.post("/order", async (req, res) => {
 // delete functions
 
 // cancel order
-app.delete("/order/:order_id", async (req, res) => {
-    const orderId = req.params.order_id;
+app.delete("/order", async (req, res) => {
+    const orderId = req.body.order_id;
+    if (!orderId) {
+        res.status(400).send("No order_id specified in body of request.")
+        return;
+    }
     // const orderPair = orderId.split("_")[0];
     // console.log("Deleting order: " + orderId +" on pair "+ orderPair);
     fetch(firestoreUrl+"/cancelOrderHTTPFn", {
@@ -105,24 +109,33 @@ app.get("/tokens", async (req, res, next) => {
     } 
 })
 
-app.get("/token/:token_id", async (req, res, next) => {
-
-    const result = (await db.collection("/tokens").doc(req.params.token_id).get()).data();
+app.get("/token", async (req, res, next) => {
+    const tokenId = req.body.token_id;
+    if (!tokenId) {
+        res.status(400).send("No token_id specified in body of request.")
+        return;
+    }
+    const result = (await db.collection("/tokens").doc(tokenId).get()).data();
     if (!result) {
-        res.status(404).send("Token not found: "+ req.params.token_id);
+        res.status(404).send("Token not found: "+ tokenId);
     } else {
         res.json(result);
     } 
 })
 
-app.get("/token/:token_id/pairs", async (req, res) => {
+app.get("/token/pairs", async (req, res) => {
+    const tokenId = req.body.token_id;
+    if (!tokenId) {
+        res.status(400).send("No token_id specified in body of request.")
+        return;
+    }
     const result = (await db.collection("/pairs").get()).docs
         .map(doc => doc.data())
         .filter(doc => {
-            return doc.token1 == req.params.token_id || doc.token2 == req.params.token_id;
+            return doc.token1 == tokenId || doc.token2 == tokenId;
         })
     if (!result || result.length == 0) {
-        res.status(404).send("No pairs found for token "+ req.params.token_id);
+        res.status(404).send("No pairs found for token "+ tokenId);
     } else {
         res.json(result);
     }
@@ -139,35 +152,45 @@ app.get("/pairs", async (req, res, next) => {
     } 
 })
 
-app.get("/pair/:pair_id", async (req, res, next) => {
-    const result = (await db.collection("/pairs").doc(req.params.pair_id).get()).data();
+app.get("/pair", async (req, res, next) => {
+    const pairId = req.body.pair_id;
+    if (!pairId) {
+        res.status(400).send("No pair_id specified in body of request.")
+        return;
+    }
+    const result = (await db.collection("/pairs").doc(pairId).get()).data();
     if (!result) {
-        res.status(404).send("Pair not found: "+ req.params.pair_id);
+        res.status(404).send("Pair not found: "+ pairId);
     } else {
         res.json(result);
     }
 })
 
-app.get("/pair/:pair_id/buy-orders", async (req, res, next) => {
+app.get("/pair/buy-orders", async (req, res, next) => {
     res = await getPairOrdersRes("buy-orders", req, res);
 })
 
-app.get("/pair/:pair_id/sell-orders", async (req, res, next) => {
+app.get("/pair/sell-orders", async (req, res, next) => {
     res = await getPairOrdersRes("sell-orders", req, res);
 })
 
-app.get("/pair/:pair_id/completed-orders", async (req, res, next) => {
+app.get("/pair/completed-orders", async (req, res, next) => {
     res = await getPairOrdersRes("completed-orders", req, res);
 })
 
-app.get("/pair/:pair_id/trades", async (req, res, next) => {
+app.get("/pair/trades", async (req, res, next) => {
     res = await getPairOrdersRes("trades", req, res);
 })
 
-app.get("/pair/:pair_id/orderbook", async (req, res, next) => {
-    const buyOrders = await getPairOrders(req.params.pair_id, "buy-orders");
+app.get("/pair/orderbook", async (req, res, next) => {
+    const pairId = req.body.pair_id;
+    if (!pairId) {
+        res.status(400).send("No pair_id specified in body of request.")
+        return;
+    }
+    const buyOrders = await getPairOrders(pairId, "buy-orders");
     const buyOrdersResult = Utils.aggregateOrders(Utils.createOrdersMap(buyOrders));
-    const sellOrders = await getPairOrders(req.params.pair_id, "sell-orders");
+    const sellOrders = await getPairOrders(pairId, "sell-orders");
     const sellOrdersResult = Utils.aggregateOrders(Utils.createOrdersMap(sellOrders));
     const result = {
         sells: sellOrdersResult,
@@ -175,31 +198,36 @@ app.get("/pair/:pair_id/orderbook", async (req, res, next) => {
     }
     console.log("MapString: ", result);
     if (!result) {
-        res.status(404).send("Pair not found: "+ req.params.pair_id);
+        res.status(404).send("Pair not found: "+ pairId);
     } else {
         res.json(result);
     }
 })
 
-app.get("/pair/:pair_id/wallet/:wallet_id/buy-orders", async (req, res, next) => {
+app.get("/pair/wallet/buy-orders", async (req, res, next) => {
     res = await getPairWalletRes("buy-orders", req, res);
 })
 
-app.get("/pair/:pair_id/wallet/:wallet_id/sell-orders", async (req, res, next) => {
+app.get("/pair/wallet/sell-orders", async (req, res, next) => {
     res = await getPairWalletRes("sell-orders", req, res);
 })
 
-app.get("/pair/:pair_id/wallet/:wallet_id/completed-orders", async (req, res, next) => {
+app.get("/pair/wallet/completed-orders", async (req, res, next) => {
     res = await getPairWalletRes("completed-orders", req, res);
 })
 
-app.get("/pair/:pair_id/wallet/:wallet_id/trades", async (req, res, next) => {
+app.get("/pair/wallet/trades", async (req, res, next) => {
     res = await getPairWalletRes("trades", req, res);
 })
 
 
 async function getPairOrdersRes(orderType: string, req: any, res: any) : Promise<any> {
-    const result = await getPairOrders(req.params.pair_id, orderType);
+    const pairId = req.body.pair_id;
+    if (!pairId) {
+        res.status(400).send("No pair_id specified in body of request.")
+        return;
+    }
+    const result = await getPairOrders(pairId, orderType);
     if (!result || result.length == 0) {
         res.json([]);
     } else {
@@ -209,10 +237,20 @@ async function getPairOrdersRes(orderType: string, req: any, res: any) : Promise
 }
 
 async function getPairWalletRes(orderType: string, req: any, res: any): Promise<any> {
-    const result = (await getPairOrders(req.params.pair_id, orderType))
-        .filter(order => order.owner == req.params.wallet_id || order.buyer == req.params.wallet_id || order.seller == req.params.wallet_id);
+    const pairId = req.body.pair_id;
+    const walletId = req.body.wallet_id;
+    if (!pairId) {
+        res.status(400).send("No pair_id specified in body of request.")
+        return;
+    }
+    if (!walletId) {
+        res.status(400).send("No wallet_id specified in body of request.")
+        return;
+    }
+    const result = (await getPairOrders(pairId, orderType))
+        .filter(order => order.owner == walletId || order.buyer == walletId || order.seller == walletId);
     if (!result || result.length == 0) {
-        res.status(404).send("No "+ orderType +" found for wallet "+ req.params.wallet_id + " in pair "+ req.params.pair_id);
+        res.status(404).send("No "+ orderType +" found for wallet "+ walletId + " in pair "+ pairId);
     } else {
         res.status(200).json(result);
     }
